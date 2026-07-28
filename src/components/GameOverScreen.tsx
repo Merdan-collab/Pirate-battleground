@@ -1,13 +1,29 @@
-import type { GameState } from '../engine/types';
+import { HEROES } from '../data/heroes';
 
-interface GameOverScreenProps {
-  game: GameState;
-  onRestart: () => void;
+export interface StandingRow {
+  id: string;
+  name: string;
+  heroId: string;
+  placement: number | null;
+  isYou: boolean;
 }
 
-export function GameOverScreen({ game, onRestart }: GameOverScreenProps) {
-  const human = game.players.find((p) => p.id === 'human')!;
-  const won = human.placement === 1;
+interface GameOverScreenProps {
+  standings: StandingRow[];
+  yourPlacement: number | null;
+  lobbySize: number;
+  onRestart: () => void;
+  restartLabel?: string;
+}
+
+export function GameOverScreen({
+  standings,
+  yourPlacement,
+  lobbySize,
+  onRestart,
+  restartLabel = 'Play Again ⚓',
+}: GameOverScreenProps) {
+  const won = yourPlacement === 1;
 
   return (
     <div className="lobby">
@@ -15,25 +31,28 @@ export function GameOverScreen({ game, onRestart }: GameOverScreenProps) {
         {won ? '👑 You are the King of the Pirates!' : 'Game Over'}
       </h1>
       <p className="lobby__subtitle">
-        You finished {human.placement} of {game.lobbySize}.
+        You finished {yourPlacement ?? '—'} of {lobbySize}.
       </p>
 
       <section className="lobby__section">
         <h2>Final Standings</h2>
         <ol className="standings-list">
-          {game.standings.map((p) => (
-            <li key={p.id} className={p.id === 'human' ? 'standings-list__me' : ''}>
-              <span className="standings-list__place">#{p.placement}</span>
-              <span className="standings-list__portrait">{p.hero.portrait}</span>
-              <span className="standings-list__name">{p.name}</span>
-              <span className="standings-list__hero">({p.hero.name})</span>
-            </li>
-          ))}
+          {standings.map((row) => {
+            const hero = HEROES.find((h) => h.id === row.heroId);
+            return (
+              <li key={row.id} className={row.isYou ? 'standings-list__me' : ''}>
+                <span className="standings-list__place">#{row.placement}</span>
+                <span className="standings-list__portrait">{hero?.portrait ?? '🏴‍☠️'}</span>
+                <span className="standings-list__name">{row.name}</span>
+                <span className="standings-list__hero">({hero?.name ?? row.heroId})</span>
+              </li>
+            );
+          })}
         </ol>
       </section>
 
       <button className="lobby__start-btn" onClick={onRestart}>
-        Play Again ⚓
+        {restartLabel}
       </button>
     </div>
   );

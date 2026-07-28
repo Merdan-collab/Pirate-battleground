@@ -6,6 +6,7 @@ interface LobbySetupProps {
   selectedHeroId: string | null;
   onSelectHero: (id: string) => void;
   onStart: () => void;
+  onBack: () => void;
 }
 
 export function LobbySetup({
@@ -14,6 +15,7 @@ export function LobbySetup({
   selectedHeroId,
   onSelectHero,
   onStart,
+  onBack,
 }: LobbySetupProps) {
   return (
     <div className="lobby">
@@ -66,6 +68,12 @@ export function LobbySetup({
       <button className="lobby__start-btn" disabled={!selectedHeroId} onClick={onStart}>
         Set Sail! ⚓
       </button>
+
+      <div className="lobby__back">
+        <button className="btn" onClick={onBack}>
+          ← Back
+        </button>
+      </div>
     </div>
   );
 }

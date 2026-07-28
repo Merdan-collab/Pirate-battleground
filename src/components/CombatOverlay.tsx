@@ -1,25 +1,41 @@
-import type { CombatSummary } from '../engine/types';
-import { minionToView, MinionCard } from './MinionCard';
+import { MinionCard, type CardView } from './MinionCard';
 
-interface CombatOverlayProps {
-  summary: CombatSummary | null;
-  onContinue: () => void;
+export interface OverlaySummary {
+  opponentName: string;
+  isBye: boolean;
+  playerBoard: CardView[];
+  opponentBoard: CardView[];
+  logs: string[];
+  result: 'WIN' | 'LOSS' | 'DRAW';
+  damageDealt: number;
 }
 
-const RESULT_LABEL: Record<CombatSummary['result'], string> = {
+interface CombatOverlayProps {
+  summary: OverlaySummary | null;
+  onContinue: () => void;
+  continueLabel?: string;
+  waiting?: boolean;
+}
+
+const RESULT_LABEL: Record<OverlaySummary['result'], string> = {
   WIN: '🏆 Victory!',
   LOSS: '💥 Defeat',
   DRAW: '🤝 Draw',
 };
 
-export function CombatOverlay({ summary, onContinue }: CombatOverlayProps) {
+export function CombatOverlay({
+  summary,
+  onContinue,
+  continueLabel = 'Continue to next round',
+  waiting = false,
+}: CombatOverlayProps) {
   if (!summary) {
     return (
       <div className="overlay">
         <div className="overlay__panel">
           <h2>No battle this round</h2>
-          <button className="btn btn--end-turn" onClick={onContinue}>
-            Continue
+          <button className="btn btn--end-turn" onClick={onContinue} disabled={waiting}>
+            {continueLabel}
           </button>
         </div>
       </div>
@@ -33,8 +49,7 @@ export function CombatOverlay({ summary, onContinue }: CombatOverlayProps) {
           {RESULT_LABEL[summary.result]}
         </h2>
         <p className="combat-vs">
-          {summary.playerName} {summary.isBye ? 'fought a mirror image of' : 'vs'}{' '}
-          {summary.opponentName}
+          {summary.isBye ? 'You fought a mirror image of' : 'You vs'} {summary.opponentName}
         </p>
         {summary.damageDealt > 0 && (
           <p className="combat-damage">
@@ -48,9 +63,9 @@ export function CombatOverlay({ summary, onContinue }: CombatOverlayProps) {
           <div className="combat-boards__side">
             <h4>Your Crew</h4>
             <div className="board-row board-row--compact">
-              {summary.playerBoardBefore.length === 0 && <p className="empty-note">Empty board</p>}
-              {summary.playerBoardBefore.map((m) => (
-                <MinionCard key={m.instanceId} view={minionToView(m)} small />
+              {summary.playerBoard.length === 0 && <p className="empty-note">Empty board</p>}
+              {summary.playerBoard.map((v) => (
+                <MinionCard key={v.key} view={v} small />
               ))}
             </div>
           </div>
@@ -58,9 +73,9 @@ export function CombatOverlay({ summary, onContinue }: CombatOverlayProps) {
           <div className="combat-boards__side">
             <h4>{summary.opponentName}</h4>
             <div className="board-row board-row--compact">
-              {summary.opponentBoardBefore.length === 0 && <p className="empty-note">Empty board</p>}
-              {summary.opponentBoardBefore.map((m) => (
-                <MinionCard key={m.instanceId} view={minionToView(m)} small />
+              {summary.opponentBoard.length === 0 && <p className="empty-note">Empty board</p>}
+              {summary.opponentBoard.map((v) => (
+                <MinionCard key={v.key} view={v} small />
               ))}
             </div>
           </div>
@@ -75,8 +90,8 @@ export function CombatOverlay({ summary, onContinue }: CombatOverlayProps) {
           </ul>
         </details>
 
-        <button className="btn btn--end-turn" onClick={onContinue}>
-          Continue to next round
+        <button className="btn btn--end-turn" onClick={onContinue} disabled={waiting}>
+          {continueLabel}
         </button>
       </div>
     </div>

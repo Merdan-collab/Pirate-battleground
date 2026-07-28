@@ -608,3 +608,205 @@
     border-bottom: 1px solid #2a3350;
   }
 }
+
+/* ---------- Main menu ---------- */
+
+.menu-choices {
+  display: flex;
+  gap: 20px;
+  justify-content: center;
+  flex-wrap: wrap;
+  margin-top: 24px;
+}
+
+.menu-choice {
+  flex: 1 1 280px;
+  max-width: 340px;
+  background: #131c33;
+  border: 2px solid #2a3350;
+  border-radius: 12px;
+  padding: 28px 22px;
+  color: #e8e4d8;
+  cursor: pointer;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  text-align: left;
+}
+
+.menu-choice:hover {
+  border-color: #f2c14e;
+  background: #1b2745;
+}
+
+.menu-choice__icon {
+  font-size: 2.4rem;
+}
+
+.menu-choice__title {
+  font-size: 1.25rem;
+  font-weight: 700;
+  color: #f2c14e;
+}
+
+.menu-choice__desc {
+  color: #b8bfd1;
+  font-size: 0.9rem;
+}
+
+/* ---------- Online lobby ---------- */
+
+.online-entry {
+  display: flex;
+  gap: 20px;
+  flex-wrap: wrap;
+}
+
+.online-entry__col {
+  flex: 1 1 280px;
+  background: #101a30;
+  border: 1px solid #2a3350;
+  border-radius: 10px;
+  padding: 18px;
+}
+
+.text-input {
+  width: 100%;
+  padding: 12px 14px;
+  border-radius: 8px;
+  border: 2px solid #2a3350;
+  background: #0e1526;
+  color: #e8e4d8;
+  font-size: 1rem;
+  margin-bottom: 12px;
+}
+
+.text-input:focus {
+  outline: none;
+  border-color: #f2c14e;
+}
+
+.text-input--code {
+  text-align: center;
+  letter-spacing: 0.4em;
+  font-size: 1.5rem;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.member-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.member-list li {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  background: #131c33;
+  border: 1px solid #2a3350;
+  border-radius: 8px;
+  padding: 10px 14px;
+}
+
+.member-list__me {
+  border-color: #f2c14e !important;
+}
+
+.member-list__name {
+  font-weight: 700;
+}
+
+.member-list__hero {
+  color: #8a93ad;
+  font-size: 0.85rem;
+}
+
+.hero-card--taken {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+
+.lobby__back {
+  margin-top: 20px;
+}
+
+/* ---------- Banners ---------- */
+
+.banner {
+  border-radius: 8px;
+  padding: 12px 16px;
+  margin-bottom: 16px;
+  cursor: pointer;
+  text-align: left;
+}
+
+.banner--error {
+  background: #4a1a15;
+  border: 1px solid #c0392b;
+  color: #ffd9d4;
+}
+
+.banner--float {
+  position: fixed;
+  top: 12px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 100;
+  max-width: 520px;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.5);
+}
+
+.banner__dismiss {
+  opacity: 0.7;
+  font-size: 0.8rem;
+}
+
+/* ---------- Turn timer & board repositioning ---------- */
+
+.turn-timer {
+  display: inline-block;
+  margin-left: 10px;
+  padding: 2px 10px;
+  border-radius: 12px;
+  background: #1c2744;
+  color: #b8bfd1;
+  font-size: 0.85rem;
+}
+
+.turn-timer--urgent {
+  background: #4a1a15;
+  color: #ff9c8f;
+}
+
+.board-slot {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.board-slot__move {
+  display: flex;
+  gap: 4px;
+  justify-content: center;
+}
+
+.board-slot__move-btn {
+  flex: 1;
+  padding: 2px 0;
+  border-radius: 4px;
+  border: 1px solid #2a3350;
+  background: #1c2744;
+  color: #e8e4d8;
+  cursor: pointer;
+  font-size: 0.7rem;
+}
+
+.board-slot__move-btn:disabled {
+  opacity: 0.3;
+  cursor: not-allowed;
+}

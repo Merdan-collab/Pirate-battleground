@@ -6,12 +6,53 @@ standing wins.
 
 ## Running it
 
+### Single player only
+
 ```bash
 npm install
 npm run dev
 ```
 
 Then open the URL Vite prints (default <http://localhost:5173>).
+
+### With online multiplayer
+
+The "Play with Friends" mode needs the game server running alongside the web app:
+
+```bash
+npm install
+npm run dev:all      # web app on :5173, game server on :8787
+```
+
+### Deploying so friends can actually join
+
+Build once, then run the server — it serves the built page *and* the websocket on a
+single port, so there's only one thing to host:
+
+```bash
+npm run build
+npm run server:start        # serves everything on :8787
+```
+
+Point `PORT` at whatever your host expects (`PORT=3000 npm run server:start`). Any Node
+host works — Railway, Render, Fly, a VPS, or your own machine with port forwarding. Once
+it's reachable, everyone opens the same URL and joins with a room code.
+
+If you host the page separately from the server, set `VITE_SERVER_URL` at build time to
+the server's websocket URL (e.g. `VITE_SERVER_URL=wss://your-server.example npm run build`).
+
+## Playing with friends
+
+1. Pick **Play with Friends**, enter a name, and choose a lobby size (2, 4, or 8).
+2. **Create Room** gives you a 4-character code — share it.
+3. Friends pick **Play with Friends**, enter their name and the code, and **Join Room**.
+4. Everyone picks a hero (each hero can only be taken once), then the host starts.
+5. **Any seats nobody claimed are filled with AI opponents**, so an 8-player lobby works
+   even with two friends.
+
+Each recruit phase has a timer (45s early, up to 75s later). The round resolves as soon as
+everyone has hit **Fight!**, or when the timer runs out. If someone disconnects, their crew
+keeps fighting on autopilot and the lobby carries on without them.
 
 ## How to play
 
@@ -58,7 +99,15 @@ src/
   engine/     game rules — combat sim, shop economy, bots, turn loop
   data/       card and hero definitions
   components/ React UI
+  net/        websocket client hook
+  shared/     wire protocol + serialization shared by client and server
+server/       authoritative websocket game server (rooms, turn timer)
 ```
 
-The engine is plain TypeScript with no React dependency, so the rules can be tested or
-reused independently of the UI.
+The engine is plain TypeScript with no React dependency, so the same rules run in the
+browser for single player and on the server for online play.
+
+Online games are server-authoritative: clients send actions (buy, sell, refresh, upgrade,
+hero power, reorder, ready) and the server validates each one against its own copy of the
+game state. Players only ever receive public information about their opponents, so nobody
+can scout the board they're about to face.

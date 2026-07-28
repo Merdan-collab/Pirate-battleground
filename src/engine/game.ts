@@ -63,8 +63,57 @@ function makePlayer(
     turnsSurvived: 0,
     placement: null,
     botTribeBias,
+    ready: false,
+    connected: true,
   };
 }
+
+export interface Seat {
+  id: string;
+  name: string;
+  isHuman: boolean;
+  heroId: string;
+}
+
+/** Builds a game from an explicit seat list — used by the online server, where
+ * several seats are real players. Empty seats are filled by the caller. */
+export function createGameFromSeats(lobbySize: 2 | 4 | 8, seats: Seat[]): GameState {
+  const players = seats.map((s) => {
+    const hero = HEROES.find((h) => h.id === s.heroId) ?? HEROES[0];
+    const bias =
+      !s.isHuman && Math.random() < 0.6
+        ? TRIBES[Math.floor(Math.random() * TRIBES.length)]
+        : null;
+    return makePlayer(s.id, s.name, s.isHuman, hero, bias);
+  });
+
+  const state: GameState = {
+    phase: 'RECRUIT',
+    lobbySize,
+    players,
+    pool: createPool(),
+    turn: 1,
+    lastRoundPairs: [],
+    lastCombatSummaries: [],
+    log: ['The game begins! Recruit your crew.'],
+    standings: [],
+  };
+
+  startRecruitPhase(state);
+  return state;
+}
+
+/** Picks distinct heroes for bot seats, avoiding any hero a human already took. */
+export function pickBotHeroes(count: number, takenHeroIds: string[]): string[] {
+  const available = shuffle(HEROES.filter((h) => !takenHeroIds.includes(h.id)));
+  const out: string[] = [];
+  for (let i = 0; i < count; i++) {
+    out.push((available[i] ?? HEROES[i % HEROES.length]).id);
+  }
+  return out;
+}
+
+export const BOT_CREW_SUFFIXES = BOT_NAME_SUFFIXES;
 
 export function createGame(lobbySize: 2 | 4 | 8, humanHeroId: string): GameState {
   const humanHero = HEROES.find((h) => h.id === humanHeroId) ?? HEROES[0];
@@ -107,21 +156,35 @@ function startRecruitPhase(state: GameState): void {
     p.gold = Math.min(p.maxGold, goldForTurn(state.turn));
     refreshShop(p, state.pool);
     maybeApplyPassiveHeroPower(p);
+    // A disconnected player can never act, so they stay permanently ready and
+    // never hold up the rest of the lobby.
+    p.ready = !p.connected;
   }
   for (const p of alivePlayers(state)) {
     if (p.isBot) runBotTurn(p, state);
   }
 }
 
+/** True once every living, connected human has locked in — the server's cue to
+ * resolve combat without waiting out the rest of the turn timer. */
+export function allHumansReady(state: GameState): boolean {
+  return state.players
+    .filter((p) => p.alive && p.isHuman && p.connected)
+    .every((p) => p.ready);
+}
+
 function deepCopyBoard(board: MinionInstance[]): MinionInstance[] {
   return board.map((m) => ({ ...m, keywords: new Set(m.keywords) }));
 }
 
+/** Resolves one pairing and returns a summary from *each* participant's point
+ * of view, so both players can be shown their own battle result. A bye against
+ * a ghost board produces a single summary. */
 function resolveOneFight(
   player: PlayerState,
   opponent: PlayerState | null,
   ghost: { board: MinionInstance[]; tavernTier: number } | null,
-): CombatSummary {
+): CombatSummary[] {
   const opponentBoard = opponent ? opponent.board : (ghost?.board ?? []);
   const opponentTavernTier = opponent ? opponent.tavernTier : (ghost?.tavernTier ?? 1);
   const playerBoardBefore = deepCopyBoard(player.board);
@@ -150,18 +213,39 @@ function resolveOneFight(
     player.health = Math.max(0, player.health - damageDealt);
   }
 
-  return {
-    playerId: player.id,
-    playerName: player.name,
-    opponentId: opponent?.id ?? null,
-    opponentName: opponent ? opponent.name : `${player.name}'s Mirror Image`,
-    isBye: opponent === null,
-    playerBoardBefore,
-    opponentBoardBefore,
-    logs: outcome.logs,
-    result,
-    damageDealt,
-  };
+  const summaries: CombatSummary[] = [
+    {
+      playerId: player.id,
+      playerName: player.name,
+      opponentId: opponent?.id ?? null,
+      opponentName: opponent ? opponent.name : `${player.name}'s Mirror Image`,
+      isBye: opponent === null,
+      playerBoardBefore,
+      opponentBoardBefore,
+      logs: outcome.logs,
+      result,
+      damageDealt,
+    },
+  ];
+
+  if (opponent) {
+    const mirrored: 'WIN' | 'LOSS' | 'DRAW' =
+      result === 'WIN' ? 'LOSS' : result === 'LOSS' ? 'WIN' : 'DRAW';
+    summaries.push({
+      playerId: opponent.id,
+      playerName: opponent.name,
+      opponentId: player.id,
+      opponentName: player.name,
+      isBye: false,
+      playerBoardBefore: opponentBoardBefore,
+      opponentBoardBefore: playerBoardBefore,
+      logs: outcome.logs,
+      result: mirrored,
+      damageDealt,
+    });
+  }
+
+  return summaries;
 }
 
 function assignPlacements(newlyDead: PlayerState[], aliveBeforeCount: number): void {
@@ -195,11 +279,11 @@ export function resolveCombatPhase(state: GameState): void {
       const ghost = ghostOwner
         ? { board: ghostSnapshots.get(ghostOwner.id) ?? [], tavernTier: ghostOwner.tavernTier }
         : null;
-      summaries.push(resolveOneFight(a, null, ghost));
+      summaries.push(...resolveOneFight(a, null, ghost));
       newRoundPairs.push([a.id, a.id]);
     } else {
       const b = byId.get(pairing.b)!;
-      summaries.push(resolveOneFight(a, b, null));
+      summaries.push(...resolveOneFight(a, b, null));
       newRoundPairs.push([a.id, b.id]);
     }
   }

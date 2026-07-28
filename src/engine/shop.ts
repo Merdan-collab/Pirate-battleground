@@ -115,6 +115,19 @@ export function sellMinion(player: PlayerState, pool: Pool, boardIndex: number):
   return { ok: true };
 }
 
+export function reorderMinion(
+  player: PlayerState,
+  instanceId: string,
+  toIndex: number,
+): BuyResult {
+  const from = player.board.findIndex((m) => m.instanceId === instanceId);
+  if (from === -1) return { ok: false, reason: 'No minion there' };
+  const clamped = Math.max(0, Math.min(toIndex, player.board.length - 1));
+  const [minion] = player.board.splice(from, 1);
+  player.board.splice(clamped, 0, minion);
+  return { ok: true };
+}
+
 export function tavernUpgradeCostFor(player: PlayerState, currentTurn: number): number {
   if (player.tavernTier >= MAX_TAVERN_TIER) return Infinity;
   return tavernUpgradeCost(player.tavernTier + 1, currentTurn, player.turnReachedCurrentTier);

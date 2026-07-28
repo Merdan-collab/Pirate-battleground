@@ -241,6 +241,12 @@ export interface PlayerState {
   turnsSurvived: number;
   placement: number | null;
   botTribeBias: Tribe | null;
+  /** Online play: set when this player has locked in their recruit phase.
+   * Combat resolves once every living human is ready, or the turn timer ends. */
+  ready: boolean;
+  /** Online play: false once the socket drops. Disconnected players keep their
+   * board and are auto-readied so they never stall the lobby. */
+  connected: boolean;
 }
 
 export interface CombatSummary {
