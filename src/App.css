@@ -810,3 +810,23 @@
   opacity: 0.3;
   cursor: not-allowed;
 }
+
+.menu-choice--disabled {
+  cursor: default;
+  opacity: 0.62;
+  border-style: dashed;
+}
+
+.menu-choice--disabled:hover {
+  border-color: #2a3350;
+  background: #131c33;
+}
+
+.menu-choice--disabled code {
+  background: #0b1220;
+  border: 1px solid #2a3350;
+  border-radius: 4px;
+  padding: 1px 5px;
+  font-size: 0.85em;
+  color: #f2c14e;
+}

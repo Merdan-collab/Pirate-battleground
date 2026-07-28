@@ -4,7 +4,7 @@ import { instantiateMinion } from './minion';
 import { drawFromPool, type Pool } from './pool';
 import { MAX_BOARD_SIZE } from './shop';
 import type { BuyResult } from './shop';
-import type { PlayerState } from './types';
+import type { MinionInstance, PlayerState } from './types';
 
 const TARGETED_HEROES = new Set([
   'luffy',
@@ -12,6 +12,7 @@ const TARGETED_HEROES = new Set([
   'sanji',
   'law',
   'robin',
+  'bigmom',
   'kaido',
   'doflamingo',
   'akainu',
@@ -36,41 +37,44 @@ export function useHeroPower(args: HeroPowerArgs): BuyResult {
   }
   if (player.gold < power.cost) return { ok: false, reason: 'Not enough gold' };
 
-  const target = targetInstanceId
+  const found = targetInstanceId
     ? player.board.find((m) => m.instanceId === targetInstanceId)
     : undefined;
-  if (heroPowerNeedsTarget(player.hero.id) && !target) {
+  if (heroPowerNeedsTarget(player.hero.id) && !found) {
     return { ok: false, reason: 'Choose a friendly minion' };
   }
+  // Past this point every targeted power has a real target, so the cases below
+  // can use it directly instead of asserting non-null on each access.
+  const target = found as MinionInstance;
 
   switch (player.hero.id) {
     case 'luffy': {
-      target!.attack += 2;
-      target!.health += 2;
+      target.attack += 2;
+      target.health += 2;
       break;
     }
     case 'zoro': {
-      target!.keywords.add('Windfury');
+      target.keywords.add('Windfury');
       break;
     }
     case 'sanji': {
-      target!.pendingAttack = (target!.pendingAttack ?? 0) + 3;
+      target.pendingAttack = (target.pendingAttack ?? 0) + 3;
       break;
     }
     case 'law': {
-      const a = target!.attack;
-      target!.attack = target!.health;
-      target!.health = a;
+      const a = target.attack;
+      target.attack = target.health;
+      target.health = a;
       break;
     }
     case 'robin': {
       if (player.board.length >= MAX_BOARD_SIZE) {
         return { ok: false, reason: 'Board is full' };
       }
-      const def = CARDS_BY_ID[target!.cardId];
+      const def = CARDS_BY_ID[target.cardId];
       if (!def) return { ok: false, reason: 'Unknown card' };
-      const copy = instantiateMinion(def, target!.isGolden);
-      const idx = player.board.findIndex((m) => m.instanceId === target!.instanceId);
+      const copy = instantiateMinion(def, target.isGolden);
+      const idx = player.board.findIndex((m) => m.instanceId === target.instanceId);
       player.board.splice(idx + 1, 0, copy);
       break;
     }
@@ -80,21 +84,21 @@ export function useHeroPower(args: HeroPowerArgs): BuyResult {
       break;
     }
     case 'bigmom': {
-      target!.keywords.add('Reborn');
+      target.keywords.add('Reborn');
       break;
     }
     case 'kaido': {
-      target!.health += 4;
+      target.health += 4;
       break;
     }
     case 'doflamingo': {
-      target!.keywords.add('Poisonous');
+      target.keywords.add('Poisonous');
       break;
     }
     case 'akainu': {
-      target!.pendingAttack = (target!.pendingAttack ?? 0) + 2;
-      target!.pendingHealth = (target!.pendingHealth ?? 0) + 2;
-      target!.pendingKeywords = [...(target!.pendingKeywords ?? []), 'Poisonous'];
+      target.pendingAttack = (target.pendingAttack ?? 0) + 2;
+      target.pendingHealth = (target.pendingHealth ?? 0) + 2;
+      target.pendingKeywords = [...(target.pendingKeywords ?? []), 'Poisonous'];
       break;
     }
     case 'sabo': {
