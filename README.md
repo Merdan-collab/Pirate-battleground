@@ -60,10 +60,22 @@ keeps fighting on autopilot and the lobby carries on without them.
 2. Each turn you get gold (2 on turn 1, +1 per turn, capped at 10).
 3. Spend it in the tavern: **buy** minions (3g), **refresh** the offerings (1g), **freeze**
    the shop for next turn (free), or **upgrade** your Tavern Tier to unlock stronger minions.
-4. Sell a minion with the ✕ button for 1g. Collect **three copies** of the same minion and
-   they automatically merge into a **golden** version with doubled stats.
+4. Collect **three copies** of the same minion and they merge into a **golden** version with
+   doubled stats.
 5. Hit **Fight!** to battle another captain. The loser takes damage based on the winner's
    Tavern Tier plus their surviving minions. At 0 health you're eliminated.
+
+Minions that die in combat come back next round — losing a fight only costs you health,
+never your warband.
+
+### Controls
+
+- **Recruit** — drag a minion from the tavern down onto the felt, or click it to add it to
+  the end of your line.
+- **Reposition** — drag a minion sideways on the felt. Position matters: minions attack in
+  order from left to right.
+- **Sell** — drag a minion up onto the tavern shelf to sell it back for 1 gold.
+- **Hero power** — click it, then click the minion you want to target.
 
 The economy, tier costs, shop sizes, triple-into-golden rule, and damage formula all follow
 standard Battlegrounds rules.

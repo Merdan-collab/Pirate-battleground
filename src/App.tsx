@@ -7,8 +7,11 @@ import { LobbySetup } from './components/LobbySetup';
 import { MainMenu } from './components/MainMenu';
 import { OnlineEntry, OnlineRoom } from './components/OnlineLobby';
 import { minionToView } from './components/MinionCard';
-import { screenFromLocalGame, screenFromWireView } from './components/viewModel';
-import { CARDS_BY_ID } from './data/cards';
+import {
+  screenFromLocalGame,
+  screenFromWireView,
+  wireMinionToCardView,
+} from './components/viewModel';
 import { createGame, endHumanTurn, fastForwardIfHumanEliminated } from './engine/game';
 import { heroPowerNeedsTarget, useHeroPower } from './engine/heroPowers';
 import {
@@ -21,7 +24,7 @@ import {
 } from './engine/shop';
 import { useOnlineGame } from './net/useOnlineGame';
 import type { CombatSummary, GameState } from './engine/types';
-import type { WireCombatSummary, WireMinion } from './shared/protocol';
+import type { WireCombatSummary } from './shared/protocol';
 
 type Mode = 'MENU' | 'SOLO_SETUP' | 'SOLO_GAME' | 'ONLINE_ENTRY' | 'ONLINE';
 
@@ -37,27 +40,12 @@ function localSummaryToOverlay(s: CombatSummary): OverlaySummary {
   };
 }
 
-function wireMinionToView(m: WireMinion) {
-  const def = CARDS_BY_ID[m.cardId];
-  return {
-    key: m.instanceId,
-    name: def?.name ?? '???',
-    flavor: def?.flavor ?? '',
-    tribe: def?.tribe ?? ('NONE' as const),
-    tier: def?.tier ?? 1,
-    attack: m.attack,
-    health: m.health,
-    keywords: m.keywords,
-    isGolden: m.isGolden,
-  };
-}
-
 function wireSummaryToOverlay(s: WireCombatSummary): OverlaySummary {
   return {
     opponentName: s.opponentName,
     isBye: s.isBye,
-    playerBoard: s.playerBoardBefore.map(wireMinionToView),
-    opponentBoard: s.opponentBoardBefore.map(wireMinionToView),
+    playerBoard: s.playerBoardBefore.map(wireMinionToCardView),
+    opponentBoard: s.opponentBoardBefore.map(wireMinionToCardView),
     logs: s.logs,
     result: s.result,
     damageDealt: s.damageDealt,
@@ -198,7 +186,18 @@ function App() {
       <GameScreen
         screen={screenFromLocalGame(game)}
         targeting={targeting}
-        onBuy={(i) => soloAction(() => buyMinion(human(), game.pool, i))}
+        onBuy={(i, toIndex) =>
+          soloAction(() => {
+            const me = human();
+            const before = me.board.length;
+            const r = buyMinion(me, game.pool, i);
+            // Reposition only when the board grew by the purchase itself; a
+            // triple collapses three minions into one instead.
+            if (r.ok && toIndex !== undefined && me.board.length === before + 1) {
+              reorderMinion(me, me.board[me.board.length - 1].instanceId, toIndex);
+            }
+          })
+        }
         onSell={(id) =>
           soloAction(() => {
             const idx = human().board.findIndex((m) => m.instanceId === id);
@@ -318,7 +317,7 @@ function App() {
         <GameScreen
           screen={screenFromWireView(view)}
           targeting={targeting}
-          onBuy={(i) => online.send({ type: 'BUY', shopIndex: i })}
+          onBuy={(i, toIndex) => online.send({ type: 'BUY', shopIndex: i, toIndex })}
           onSell={(id) => online.send({ type: 'SELL', instanceId: id })}
           onReroll={() => online.send({ type: 'REROLL' })}
           onFreeze={() => online.send({ type: 'FREEZE' })}

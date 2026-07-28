@@ -1,6 +1,6 @@
 import { HEROES } from '../data/heroes';
 import { runBotTurn } from './bot';
-import { computeCombatDamage, simulateCombat, syncBoardAfterCombat } from './combat';
+import { computeCombatDamage, simulateCombat } from './combat';
 import { maybeApplyPassiveHeroPower } from './heroPowers';
 import { pairPlayers } from './pairing';
 import { createPool, goldForTurn } from './pool';
@@ -190,6 +190,9 @@ function resolveOneFight(
   const playerBoardBefore = deepCopyBoard(player.board);
   const opponentBoardBefore = deepCopyBoard(opponentBoard);
 
+  // simulateCombat works on its own clones, so both warbands survive the fight
+  // intact. Minions that die in combat are back next recruit phase — combat
+  // only ever costs the loser health, exactly as in Battlegrounds.
   const outcome = simulateCombat(player.board, opponentBoard);
 
   let result: 'WIN' | 'LOSS' | 'DRAW';
@@ -197,18 +200,12 @@ function resolveOneFight(
 
   if (outcome.draw) {
     result = 'DRAW';
-    player.board = [];
-    if (opponent) opponent.board = [];
   } else if (outcome.aSurvived) {
     result = 'WIN';
-    player.board = syncBoardAfterCombat(player.board, outcome.aFinalBoard);
-    if (opponent) opponent.board = [];
     damageDealt = computeCombatDamage(player.tavernTier, outcome.aFinalBoard);
     if (opponent) opponent.health = Math.max(0, opponent.health - damageDealt);
   } else {
     result = 'LOSS';
-    player.board = [];
-    if (opponent) opponent.board = syncBoardAfterCombat(opponent.board, outcome.bFinalBoard);
     damageDealt = computeCombatDamage(opponentTavernTier, outcome.bFinalBoard);
     player.health = Math.max(0, player.health - damageDealt);
   }

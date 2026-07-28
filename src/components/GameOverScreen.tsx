@@ -21,39 +21,42 @@ export function GameOverScreen({
   yourPlacement,
   lobbySize,
   onRestart,
-  restartLabel = 'Play Again ⚓',
+  restartLabel = 'Play again',
 }: GameOverScreenProps) {
   const won = yourPlacement === 1;
 
   return (
-    <div className="lobby">
-      <h1 className="lobby__title">
-        {won ? '👑 You are the King of the Pirates!' : 'Game Over'}
+    <div className="page">
+      <span className="menu__crest" style={{ textAlign: 'center' }}>
+        {won ? '👑' : '🏴‍☠️'}
+      </span>
+      <h1 className="page__title">
+        {won ? 'King of the Pirates' : `You placed ${yourPlacement ?? '—'} of ${lobbySize}`}
       </h1>
-      <p className="lobby__subtitle">
-        You finished {yourPlacement ?? '—'} of {lobbySize}.
-      </p>
+      {won && <p className="page__lede">Last captain standing out of {lobbySize}.</p>}
 
-      <section className="lobby__section">
-        <h2>Final Standings</h2>
-        <ol className="standings-list">
+      <section className="panel">
+        <h2 className="panel__title">Final standings</h2>
+        <ol className="standings">
           {standings.map((row) => {
             const hero = HEROES.find((h) => h.id === row.heroId);
             return (
-              <li key={row.id} className={row.isYou ? 'standings-list__me' : ''}>
-                <span className="standings-list__place">#{row.placement}</span>
-                <span className="standings-list__portrait">{hero?.portrait ?? '🏴‍☠️'}</span>
-                <span className="standings-list__name">{row.name}</span>
-                <span className="standings-list__hero">({hero?.name ?? row.heroId})</span>
+              <li key={row.id} className={row.isYou ? 'standings__me' : ''}>
+                <span className="standings__place">#{row.placement}</span>
+                <span className="standings__avatar">{hero?.portrait ?? '🏴‍☠️'}</span>
+                <span className="standings__name">{row.name}</span>
+                <span className="standings__hero">{hero?.name ?? row.heroId}</span>
               </li>
             );
           })}
         </ol>
       </section>
 
-      <button className="lobby__start-btn" onClick={onRestart}>
-        {restartLabel}
-      </button>
+      <div className="page__cta">
+        <button className="primary-btn" onClick={onRestart}>
+          {restartLabel}
+        </button>
+      </div>
     </div>
   );
 }

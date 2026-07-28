@@ -11,7 +11,7 @@
     "server": "tsx watch server/index.ts",
     "server:start": "tsx server/index.ts",
     "dev:all": "concurrently -n web,server -c cyan,magenta \"npm:dev\" \"npm:server\"",
-    "test": "node --import tsx test/hero-powers.test.mjs"
+    "test": "node --import tsx test/hero-powers.test.mjs && node --import tsx test/board-persists.test.mjs"
   },
   "dependencies": {
     "react": "^19.2.7",

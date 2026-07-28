@@ -108,7 +108,7 @@ export type ClientMessage =
   | { type: 'SET_LOBBY_SIZE'; lobbySize: LobbySize }
   | { type: 'START_GAME' }
   | { type: 'LEAVE_ROOM' }
-  | { type: 'BUY'; shopIndex: number }
+  | { type: 'BUY'; shopIndex: number; toIndex?: number }
   | { type: 'SELL'; instanceId: string }
   | { type: 'REROLL' }
   | { type: 'FREEZE' }

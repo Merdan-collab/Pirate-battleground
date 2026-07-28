@@ -45,6 +45,34 @@ export interface ScreenState {
   online: boolean;
 }
 
+/** Wire minions carry no card metadata, so re-join them with the local card
+ * database to build the same view the local engine produces. */
+export function wireMinionToCardView(m: {
+  instanceId: string;
+  cardId: string;
+  attack: number;
+  health: number;
+  keywords: CardView['keywords'];
+  isGolden: boolean;
+}): CardView {
+  const def = CARDS_BY_ID[m.cardId];
+  const mult = m.isGolden ? 2 : 1;
+  return {
+    key: m.instanceId,
+    cardId: m.cardId,
+    name: def?.name ?? '???',
+    flavor: def?.flavor ?? '',
+    tribe: def?.tribe ?? 'NONE',
+    tier: def?.tier ?? 1,
+    attack: m.attack,
+    health: m.health,
+    keywords: m.keywords,
+    isGolden: m.isGolden,
+    buffedAttack: def ? m.attack > def.attack * mult : false,
+    buffedHealth: def ? m.health > def.health * mult : false,
+  };
+}
+
 function heroById(id: string): HeroDef {
   return HEROES.find((h) => h.id === id) ?? HEROES[0];
 }
@@ -107,20 +135,7 @@ export function screenFromWireView(view: WireGameView): ScreenState {
         const def = id ? CARDS_BY_ID[id] : null;
         return def ? cardDefToView(def) : null;
       }),
-      board: you.board.map((m) => {
-        const def = CARDS_BY_ID[m.cardId];
-        return {
-          key: m.instanceId,
-          name: def?.name ?? '???',
-          flavor: def?.flavor ?? '',
-          tribe: def?.tribe ?? 'NONE',
-          tier: def?.tier ?? 1,
-          attack: m.attack,
-          health: m.health,
-          keywords: m.keywords,
-          isGolden: m.isGolden,
-        } satisfies CardView;
-      }),
+      board: you.board.map(wireMinionToCardView),
       frozen: you.frozen,
       heroPowerUsedThisTurn: you.heroPowerUsedThisTurn,
       ready: you.ready,

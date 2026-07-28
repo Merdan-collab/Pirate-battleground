@@ -1,4 +1,4 @@
-import { HEROES } from '../data/heroes';
+import { HeroPicker } from './HeroPicker';
 
 interface LobbySetupProps {
   lobbySize: 2 | 4 | 8;
@@ -18,60 +18,36 @@ export function LobbySetup({
   onBack,
 }: LobbySetupProps) {
   return (
-    <div className="lobby">
-      <h1 className="lobby__title">🏴‍☠️ Grand Line Battleground</h1>
-      <p className="lobby__subtitle">
-        A One Piece auto-battler — build your crew, fight rival fleets, and be the last
-        captain standing.
-      </p>
+    <div className="page">
+      <header className="page__head">
+        <button className="ghost-btn" onClick={onBack}>
+          ← Back
+        </button>
+        <h1 className="page__title">Choose Your Captain</h1>
+        <span className="page__spacer" />
+      </header>
 
-      <section className="lobby__section">
-        <h2>Number of players</h2>
-        <div className="lobby__lobby-size-row">
+      <section className="panel">
+        <h2 className="panel__title">Lobby size</h2>
+        <div className="seg">
           {[2, 4, 8].map((n) => (
             <button
               key={n}
-              className={`lobby__size-btn ${lobbySize === n ? 'lobby__size-btn--active' : ''}`}
+              className={`seg__btn ${lobbySize === n ? 'seg__btn--on' : ''}`}
               onClick={() => onChangeLobbySize(n as 2 | 4 | 8)}
             >
               {n} players
             </button>
           ))}
         </div>
-        <p className="lobby__hint">You play against {lobbySize - 1} AI opponents.</p>
+        <p className="panel__note">You face {lobbySize - 1} AI captains.</p>
       </section>
 
-      <section className="lobby__section">
-        <h2>Choose your hero</h2>
-        <div className="lobby__hero-grid">
-          {HEROES.map((h) => (
-            <button
-              key={h.id}
-              className={`hero-card ${selectedHeroId === h.id ? 'hero-card--selected' : ''}`}
-              onClick={() => onSelectHero(h.id)}
-            >
-              <div className="hero-card__portrait">{h.portrait}</div>
-              <div className="hero-card__name">{h.name}</div>
-              <div className="hero-card__title">{h.title}</div>
-              <div className="hero-card__power">
-                <strong>{h.power.name}</strong>
-                {h.power.usesPerTurn > 0 && (
-                  <span className="hero-card__cost"> ({h.power.cost}g)</span>
-                )}
-                <div className="hero-card__power-desc">{h.power.description}</div>
-              </div>
-            </button>
-          ))}
-        </div>
-      </section>
+      <HeroPicker selectedHeroId={selectedHeroId} onSelect={onSelectHero} />
 
-      <button className="lobby__start-btn" disabled={!selectedHeroId} onClick={onStart}>
-        Set Sail! ⚓
-      </button>
-
-      <div className="lobby__back">
-        <button className="btn" onClick={onBack}>
-          ← Back
+      <div className="page__cta">
+        <button className="primary-btn" disabled={!selectedHeroId} onClick={onStart}>
+          {selectedHeroId ? 'Set Sail' : 'Pick a captain first'}
         </button>
       </div>
     </div>

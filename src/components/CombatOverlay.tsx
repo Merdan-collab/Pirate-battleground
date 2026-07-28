@@ -17,24 +17,24 @@ interface CombatOverlayProps {
   waiting?: boolean;
 }
 
-const RESULT_LABEL: Record<OverlaySummary['result'], string> = {
-  WIN: '🏆 Victory!',
-  LOSS: '💥 Defeat',
-  DRAW: '🤝 Draw',
+const BANNER: Record<OverlaySummary['result'], string> = {
+  WIN: 'Victory',
+  LOSS: 'Defeat',
+  DRAW: 'Draw',
 };
 
 export function CombatOverlay({
   summary,
   onContinue,
-  continueLabel = 'Continue to next round',
+  continueLabel = 'Next round',
   waiting = false,
 }: CombatOverlayProps) {
   if (!summary) {
     return (
-      <div className="overlay">
-        <div className="overlay__panel">
-          <h2>No battle this round</h2>
-          <button className="btn btn--end-turn" onClick={onContinue} disabled={waiting}>
+      <div className="veil">
+        <div className="report">
+          <h2 className="report__banner report__banner--draw">No battle this round</h2>
+          <button className="primary-btn" onClick={onContinue} disabled={waiting}>
             {continueLabel}
           </button>
         </div>
@@ -42,46 +42,50 @@ export function CombatOverlay({
     );
   }
 
+  const tone = summary.result.toLowerCase();
+
   return (
-    <div className="overlay">
-      <div className="overlay__panel overlay__panel--wide">
-        <h2 className={`combat-result combat-result--${summary.result.toLowerCase()}`}>
-          {RESULT_LABEL[summary.result]}
-        </h2>
-        <p className="combat-vs">
-          {summary.isBye ? 'You fought a mirror image of' : 'You vs'} {summary.opponentName}
+    <div className="veil">
+      <div className="report">
+        <h2 className={`report__banner report__banner--${tone}`}>{BANNER[summary.result]}</h2>
+        <p className="report__vs">
+          {summary.isBye ? 'You fought a mirror image of' : 'You faced'} {summary.opponentName}
         </p>
         {summary.damageDealt > 0 && (
-          <p className="combat-damage">
+          <p className="report__damage">
             {summary.result === 'WIN'
-              ? `You dealt ${summary.damageDealt} damage!`
-              : `You took ${summary.damageDealt} damage.`}
+              ? `You dealt ${summary.damageDealt} damage`
+              : `You took ${summary.damageDealt} damage`}
           </p>
         )}
 
-        <div className="combat-boards">
-          <div className="combat-boards__side">
-            <h4>Your Crew</h4>
-            <div className="board-row board-row--compact">
-              {summary.playerBoard.length === 0 && <p className="empty-note">Empty board</p>}
-              {summary.playerBoard.map((v) => (
-                <MinionCard key={v.key} view={v} small />
-              ))}
+        <div className="report__sides">
+          <div className="report__side">
+            <h4>Your crew</h4>
+            <div className="report__row">
+              {summary.playerBoard.length === 0 ? (
+                <p className="report__none">Empty board</p>
+              ) : (
+                summary.playerBoard.map((v) => <MinionCard key={v.key} view={v} size="small" />)
+              )}
             </div>
           </div>
-          <div className="combat-boards__vs">VS</div>
-          <div className="combat-boards__side">
+
+          <span className="report__vs-mark">vs</span>
+
+          <div className="report__side">
             <h4>{summary.opponentName}</h4>
-            <div className="board-row board-row--compact">
-              {summary.opponentBoard.length === 0 && <p className="empty-note">Empty board</p>}
-              {summary.opponentBoard.map((v) => (
-                <MinionCard key={v.key} view={v} small />
-              ))}
+            <div className="report__row">
+              {summary.opponentBoard.length === 0 ? (
+                <p className="report__none">Empty board</p>
+              ) : (
+                summary.opponentBoard.map((v) => <MinionCard key={v.key} view={v} size="small" />)
+              )}
             </div>
           </div>
         </div>
 
-        <details className="combat-log">
+        <details className="report__log">
           <summary>Battle log ({summary.logs.length} events)</summary>
           <ul>
             {summary.logs.map((l, i) => (
@@ -90,7 +94,7 @@ export function CombatOverlay({
           </ul>
         </details>
 
-        <button className="btn btn--end-turn" onClick={onContinue} disabled={waiting}>
+        <button className="primary-btn" onClick={onContinue} disabled={waiting}>
           {continueLabel}
         </button>
       </div>

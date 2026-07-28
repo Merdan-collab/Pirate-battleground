@@ -187,8 +187,17 @@ export class Room {
     const pool = this.game.pool;
     switch (msg.type) {
       case 'BUY': {
+        const before = player.board.length;
         const r = buyMinion(player, pool, msg.shopIndex);
-        return r.ok ? null : (r.reason ?? 'Cannot buy');
+        if (!r.ok) return r.reason ?? 'Cannot buy';
+        // The engine appends the purchase; move it to where it was dropped.
+        // A triple merges three minions into one, so only reposition when the
+        // board actually grew by exactly the new minion.
+        if (msg.toIndex !== undefined && player.board.length === before + 1) {
+          const bought = player.board[player.board.length - 1];
+          reorderMinion(player, bought.instanceId, msg.toIndex);
+        }
+        return null;
       }
       case 'SELL': {
         const idx = player.board.findIndex((m) => m.instanceId === msg.instanceId);
