@@ -1,0 +1,163 @@
+import type { HeroDef } from '../engine/types';
+
+// Hero powers use a small set of primitives resolved by id in engine/heroPowers.ts.
+// Every hero starts with 40 health, matching standard Battlegrounds balance.
+
+export const HEROES: HeroDef[] = [
+  {
+    id: 'luffy',
+    name: 'Monkey D. Luffy',
+    title: 'The Future King of the Pirates',
+    portrait: '🏴‍☠️',
+    startingHealth: 40,
+    power: {
+      name: 'Gear Second',
+      description: 'Choose a friendly minion. It gains a permanent +2/+2.',
+      cost: 1,
+      usesPerTurn: 1,
+    },
+  },
+  {
+    id: 'zoro',
+    name: 'Roronoa Zoro',
+    title: 'The Pirate Hunter',
+    portrait: '⚔️',
+    startingHealth: 40,
+    power: {
+      name: 'Ittoryu: Iai',
+      description: 'Give a friendly minion Windfury.',
+      cost: 2,
+      usesPerTurn: 1,
+    },
+  },
+  {
+    id: 'sanji',
+    name: 'Vinsmoke Sanji',
+    title: 'The Black Leg Cook',
+    portrait: '🔥',
+    startingHealth: 40,
+    power: {
+      name: 'Diable Jambe',
+      description: 'Give a friendly minion +3 Attack for the next combat only.',
+      cost: 1,
+      usesPerTurn: 1,
+    },
+  },
+  {
+    id: 'nami',
+    name: 'Nami',
+    title: 'The Cat Burglar',
+    portrait: '🌩️',
+    startingHealth: 40,
+    power: {
+      name: 'Weather Forecast',
+      description: 'Passive: at the start of each recruit phase, 40% chance to gain +1 gold.',
+      cost: 0,
+      usesPerTurn: 0,
+    },
+  },
+  {
+    id: 'law',
+    name: 'Trafalgar Law',
+    title: 'The Surgeon of Death',
+    portrait: '💙',
+    startingHealth: 40,
+    power: {
+      name: 'Room: Shambles',
+      description: 'Swap the Attack and Health of a friendly minion.',
+      cost: 1,
+      usesPerTurn: 1,
+    },
+  },
+  {
+    id: 'robin',
+    name: 'Nico Robin',
+    title: 'The Devil Child',
+    portrait: '🌸',
+    startingHealth: 40,
+    power: {
+      name: 'Mil Fleurs: Giant Hand',
+      description: 'Create a copy of a friendly minion.',
+      cost: 2,
+      usesPerTurn: 1,
+    },
+  },
+  {
+    id: 'shanks',
+    name: 'Shanks',
+    title: 'The Red-Haired Emperor',
+    portrait: '🍷',
+    startingHealth: 40,
+    power: {
+      name: "Conqueror's Haki",
+      description: 'Freeze your tavern for free and gain +1 gold.',
+      cost: 1,
+      usesPerTurn: 1,
+    },
+  },
+  {
+    id: 'bigmom',
+    name: 'Charlotte "Big Mom" Linlin',
+    title: 'Ruler of Totto Land',
+    portrait: '👑',
+    startingHealth: 40,
+    power: {
+      name: 'Soul Pact',
+      description: 'Give a friendly minion Reborn.',
+      cost: 2,
+      usesPerTurn: 1,
+    },
+  },
+  {
+    id: 'kaido',
+    name: 'Kaido',
+    title: 'Strongest Creature in the World',
+    portrait: '🐉',
+    startingHealth: 40,
+    power: {
+      name: 'Boro Breath',
+      description: 'Give a friendly minion a permanent +4 Health.',
+      cost: 1,
+      usesPerTurn: 1,
+    },
+  },
+  {
+    id: 'doflamingo',
+    name: 'Donquixote Doflamingo',
+    title: 'The Heavenly Demon',
+    portrait: '🧵',
+    startingHealth: 40,
+    power: {
+      name: 'String Art',
+      description: 'Give a friendly minion permanent Poisonous.',
+      cost: 2,
+      usesPerTurn: 1,
+    },
+  },
+  {
+    id: 'akainu',
+    name: 'Sakazuki "Akainu"',
+    title: 'Fleet Admiral',
+    portrait: '🌋',
+    startingHealth: 40,
+    power: {
+      name: 'Magu Magu no Mi',
+      description: 'Give a friendly minion +2/+2 and Poisonous for the next combat only.',
+      cost: 2,
+      usesPerTurn: 1,
+    },
+  },
+  {
+    id: 'sabo',
+    name: 'Sabo',
+    title: 'Flame Emperor of the Revolution',
+    portrait: '🔱',
+    startingHealth: 40,
+    power: {
+      name: 'Flame Fleet',
+      description: 'Add a random minion of your current Tavern Tier to your board.',
+      cost: 1,
+      usesPerTurn: 1,
+    },
+  },
+];
