@@ -1,37 +1,224 @@
 import { CARDS_BY_ID } from '../data/cards';
-import { applyEffects, damageMinion, type EffectContext } from './effects';
-import type { Keyword, MinionInstance } from './types';
+import {
+  applyEffects,
+  damageMinion,
+  defOf,
+  hasModifier,
+  recomputeAuras,
+  tribeOf,
+  type EffectContext,
+} from './effects';
+import { cloneMinion } from './minion';
+import type { Keyword, MinionInstance, Trigger, TriggerEvent } from './types';
 
-function cardName(m: MinionInstance): string {
+export type Side = 'a' | 'b';
+
+export interface MinionSnapshot {
+  instanceId: string;
+  cardId: string;
+  attack: number;
+  health: number;
+  keywords: Keyword[];
+  isGolden: boolean;
+}
+
+/** One frame of the battle, replayed by the animated viewer. Each step carries
+ * a full snapshot of both boards so the UI can render state directly rather
+ * than trying to re-derive it. */
+export interface CombatStep {
+  kind: 'start' | 'attack' | 'damage' | 'death' | 'summon' | 'buff' | 'end';
+  a: MinionSnapshot[];
+  b: MinionSnapshot[];
+  actorSide?: Side;
+  actorId?: string;
+  targetSide?: Side;
+  targetIds?: string[];
+  text: string;
+}
+
+function snapshot(list: MinionInstance[]): MinionSnapshot[] {
+  return list
+    .filter((m) => m.health > 0)
+    .map((m) => ({
+      instanceId: m.instanceId,
+      cardId: m.cardId,
+      attack: m.attack,
+      health: m.health,
+      keywords: [...m.keywords],
+      isGolden: m.isGolden,
+    }));
+}
+
+function nameOf(m: MinionInstance): string {
   return CARDS_BY_ID[m.cardId]?.name ?? '???';
 }
 
-function cloneForCombat(m: MinionInstance): MinionInstance {
-  const keywords = new Set(m.keywords);
-  for (const k of m.pendingKeywords ?? []) keywords.add(k);
-  return {
-    ...m,
-    attack: m.attack + (m.pendingAttack ?? 0),
-    health: m.health + (m.pendingHealth ?? 0),
-    keywords,
-    divineShieldConsumedThisFight: false,
-    frenzyTriggered: false,
-    justReborn: false,
-  };
+function prepareForCombat(m: MinionInstance): MinionInstance {
+  const c = cloneMinion(m);
+  c.attack += m.pendingAttack ?? 0;
+  c.health += m.pendingHealth ?? 0;
+  for (const k of m.pendingKeywords ?? []) c.keywords.add(k);
+  c.spentTriggers = new Set();
+  c.justReborn = false;
+  return c;
 }
 
-function aliveCount(list: MinionInstance[]): number {
-  return list.filter((m) => m.health > 0).length;
-}
+// --------------------------------------------------------------------------
+// Battle state
+// --------------------------------------------------------------------------
 
-function findNextAlive(list: MinionInstance[], pointer: number): number {
-  const n = list.length;
-  for (let i = 0; i < n; i++) {
-    const idx = (pointer + i) % n;
-    if (list[idx].health > 0) return idx;
+class Battle {
+  a: MinionInstance[];
+  b: MinionInstance[];
+  steps: CombatStep[] = [];
+  logs: string[] = [];
+  /** Minions queued to attack out of turn (Scallywag's token, Yo-Ho-Ogre). */
+  private extraAttacks: { side: Side; minion: MinionInstance }[] = [];
+
+  constructor(a: MinionInstance[], b: MinionInstance[]) {
+    this.a = a;
+    this.b = b;
   }
-  return -1;
+
+  board(side: Side): MinionInstance[] {
+    return side === 'a' ? this.a : this.b;
+  }
+
+  enemy(side: Side): MinionInstance[] {
+    return side === 'a' ? this.b : this.a;
+  }
+
+  push(step: Omit<CombatStep, 'a' | 'b'>): void {
+    this.steps.push({ ...step, a: snapshot(this.a), b: snapshot(this.b) });
+    if (step.text) this.logs.push(step.text);
+  }
+
+  queueAttack(side: Side, minion: MinionInstance): void {
+    this.extraAttacks.push({ side, minion });
+  }
+
+  takeQueuedAttack(): { side: Side; minion: MinionInstance } | undefined {
+    return this.extraAttacks.shift();
+  }
+
+  ctxFor(side: Side, self: MinionInstance, eventSubject?: MinionInstance): EffectContext {
+    return {
+      self,
+      ownerBoard: this.board(side),
+      enemyBoard: this.enemy(side),
+      eventSubject,
+      onAttackImmediately: (m) => this.queueAttack(side, m),
+      onTriggerDeathrattle: (m) => this.fireDeathrattle(side, m),
+      onSummoned: (m) => {
+        this.push({
+          kind: 'summon',
+          actorSide: side,
+          actorId: m.instanceId,
+          text: `${nameOf(m)} is summoned.`,
+        });
+        this.fireTriggers('afterFriendlySummoned', side, m);
+      },
+      log: (t) => this.logs.push(t),
+    };
+  }
+
+  /** Runs every trigger on `side` listening for `event`. */
+  fireTriggers(event: TriggerEvent, side: Side, subject?: MinionInstance): void {
+    const board = [...this.board(side)];
+    for (const m of board) {
+      if (m.health <= 0) continue;
+      const triggers = defOf(m)?.triggers;
+      if (!triggers) continue;
+      triggers.forEach((trigger: Trigger, index: number) => {
+        if (trigger.on !== event) return;
+        if (trigger.tribe && subject && tribeOf(subject) !== trigger.tribe) return;
+        if (trigger.oncePerCombat) {
+          if (m.spentTriggers?.has(index)) return;
+          m.spentTriggers?.add(index);
+        }
+        // Snapshot enemy health so trigger damage produces an animatable
+        // 'damage' step rather than a silent stat change.
+        const enemyHealthBefore = new Map(
+          this.enemy(side).map((e) => [e.instanceId, e.health]),
+        );
+        const times = m.isGolden ? 2 : 1;
+        for (let i = 0; i < times; i++) {
+          applyEffects(trigger.effects, this.ctxFor(side, m, subject));
+        }
+        const hurt = this.enemy(side)
+          .filter((e) => (enemyHealthBefore.get(e.instanceId) ?? e.health) > e.health)
+          .map((e) => e.instanceId);
+
+        this.push({
+          kind: hurt.length > 0 ? 'damage' : 'buff',
+          actorSide: side,
+          actorId: m.instanceId,
+          targetSide: hurt.length > 0 ? (side === 'a' ? 'b' : 'a') : undefined,
+          targetIds: hurt.length > 0 ? hurt : undefined,
+          text: `${nameOf(m)} triggers.`,
+        });
+      });
+    }
+  }
+
+  fireDeathrattle(side: Side, m: MinionInstance): void {
+    const def = defOf(m);
+    if (!def?.deathrattle) return;
+    const times = (m.isGolden ? 2 : 1) * hasModifier(this.board(side), 'doubleDeathrattle');
+    for (let i = 0; i < times; i++) {
+      applyEffects(def.deathrattle, this.ctxFor(side, m));
+    }
+  }
+
+  /** Removes dead minions, firing Deathrattles and Reborn in board order. */
+  cleanupDeaths(): void {
+    for (const side of ['a', 'b'] as Side[]) {
+      const board = this.board(side);
+      for (let i = 0; i < board.length; i++) {
+        const m = board[i];
+        if (m.health > 0) continue;
+
+        board.splice(i, 1);
+        this.push({
+          kind: 'death',
+          actorSide: side,
+          actorId: m.instanceId,
+          text: `${nameOf(m)} dies.`,
+        });
+
+        this.fireDeathrattle(side, m);
+        this.fireTriggers('afterFriendlyDies', side, m);
+
+        if (m.keywords.has('Reborn') && !m.justReborn && board.length < 7) {
+          const def = defOf(m);
+          const reborn = cloneMinion(m);
+          reborn.instanceId = `${m.instanceId}_rb`;
+          reborn.health = 1;
+          reborn.attack = m.baseAttack;
+          reborn.keywords = new Set((def?.keywords ?? []).filter((k) => k !== 'Reborn'));
+          reborn.justReborn = true;
+          board.splice(Math.min(i, board.length), 0, reborn);
+          this.push({
+            kind: 'summon',
+            actorSide: side,
+            actorId: reborn.instanceId,
+            text: `${nameOf(m)} is reborn.`,
+          });
+        }
+        i -= 1;
+      }
+      recomputeAuras(this.board(side));
+    }
+  }
+
+  aliveCount(side: Side): number {
+    return this.board(side).filter((m) => m.health > 0).length;
+  }
 }
+
+// --------------------------------------------------------------------------
+// Attacking
+// --------------------------------------------------------------------------
 
 function chooseDefender(defenders: MinionInstance[]): MinionInstance | null {
   const alive = defenders.filter((m) => m.health > 0);
@@ -41,224 +228,192 @@ function chooseDefender(defenders: MinionInstance[]): MinionInstance | null {
   return pool[Math.floor(Math.random() * pool.length)];
 }
 
-function triggerFrenzy(
-  m: MinionInstance,
-  board: MinionInstance[],
-  enemyBoard: MinionInstance[],
-  logs: string[],
-  wasShielded: boolean,
-  amount: number,
-): void {
-  if (wasShielded || amount <= 0 || m.health <= 0 || m.frenzyTriggered) return;
-  const def = CARDS_BY_ID[m.cardId];
-  if (!def?.frenzy) return;
-  m.frenzyTriggered = true;
-  const ctx: EffectContext = {
-    self: m,
-    ownerBoard: board,
-    enemyBoard,
-    log: (t) => logs.push(t),
-  };
-  applyEffects(def.frenzy, ctx);
-  logs.push(`${cardName(m)} goes into a frenzy!`);
-}
+function resolveAttack(battle: Battle, side: Side, attacker: MinionInstance): void {
+  if (attacker.health <= 0 || attacker.attack <= 0) return;
+  const defenders = battle.enemy(side);
+  const defender = chooseDefender(defenders);
+  if (!defender) return;
 
-function createRebornCopy(m: MinionInstance): MinionInstance {
-  const def = CARDS_BY_ID[m.cardId];
-  return {
-    instanceId: `${m.instanceId}_reborn_${Math.random().toString(36).slice(2, 7)}`,
-    cardId: m.cardId,
-    attack: m.baseAttack,
-    health: 1,
-    baseAttack: m.baseAttack,
-    baseHealth: m.baseHealth,
-    keywords: new Set((def?.keywords ?? []).filter((k) => k !== 'Reborn')),
-    isGolden: m.isGolden,
-    justReborn: true,
-  };
-}
+  const defSide: Side = side === 'a' ? 'b' : 'a';
+  const attackerAtk = attacker.attack;
+  const defenderAtk = defender.attack;
 
-function handleDeath(
-  m: MinionInstance,
-  board: MinionInstance[],
-  enemyBoard: MinionInstance[],
-  logs: string[],
-): void {
-  if (m.health > 0) return;
-  const def = CARDS_BY_ID[m.cardId];
-  if (def?.deathrattle) {
-    const ctx: EffectContext = {
-      self: m,
-      ownerBoard: board,
-      enemyBoard,
-      log: (t) => logs.push(t),
-    };
-    applyEffects(def.deathrattle, ctx);
+  battle.push({
+    kind: 'attack',
+    actorSide: side,
+    actorId: attacker.instanceId,
+    targetSide: defSide,
+    targetIds: [defender.instanceId],
+    text: `${nameOf(attacker)} attacks ${nameOf(defender)}.`,
+  });
+
+  // Cleave also strikes the defender's neighbours.
+  const splashTargets: MinionInstance[] = [];
+  if (attacker.keywords.has('Cleave')) {
+    const i = defenders.indexOf(defender);
+    if (i > 0) splashTargets.push(defenders[i - 1]);
+    if (i < defenders.length - 1) splashTargets.push(defenders[i + 1]);
   }
-  const removeIdx = board.indexOf(m);
-  const shouldReborn = m.keywords.has('Reborn') && !m.justReborn;
-  if (removeIdx !== -1) board.splice(removeIdx, 1);
-  logs.push(`${cardName(m)} dies.`);
-  if (shouldReborn && board.length < 7) {
-    const reborn = createRebornCopy(m);
-    const insertAt = Math.min(removeIdx, board.length);
-    board.splice(insertAt, 0, reborn);
-    logs.push(`${cardName(m)} is reborn!`);
-  }
-}
 
-function resolveTrade(
-  attacker: MinionInstance,
-  defender: MinionInstance,
-  attackerBoard: MinionInstance[],
-  defenderBoard: MinionInstance[],
-  logs: string[],
-): void {
-  const aAtk = attacker.attack;
-  const dAtk = defender.attack;
-  logs.push(`${cardName(attacker)} (${aAtk}/${attacker.health}) attacks ${cardName(defender)} (${dAtk}/${defender.health})`);
-  const defenderShielded = damageMinion(defender, aAtk);
-  const attackerShielded = damageMinion(attacker, dAtk);
+  const defenderShielded = damageMinion(defender, attackerAtk);
+  for (const s of splashTargets) damageMinion(s, attackerAtk);
+  const attackerShielded = damageMinion(attacker, defenderAtk);
 
-  if (attacker.keywords.has('Poisonous') && !defenderShielded && aAtk > 0 && defender.health > 0) {
+  if (attacker.keywords.has('Poisonous') && !defenderShielded && defender.health > 0) {
     defender.health = 0;
-    logs.push(`${cardName(defender)} is poisoned!`);
   }
-  if (defender.keywords.has('Poisonous') && !attackerShielded && dAtk > 0 && attacker.health > 0) {
+  if (defender.keywords.has('Poisonous') && !attackerShielded && attacker.health > 0) {
     attacker.health = 0;
-    logs.push(`${cardName(attacker)} is poisoned!`);
   }
 
-  triggerFrenzy(defender, defenderBoard, attackerBoard, logs, defenderShielded, aAtk);
-  triggerFrenzy(attacker, attackerBoard, defenderBoard, logs, attackerShielded, dAtk);
+  const hitNames = [defender, ...splashTargets].map(nameOf).join(', ');
+  battle.push({
+    kind: 'damage',
+    actorSide: side,
+    actorId: attacker.instanceId,
+    targetSide: defSide,
+    targetIds: [defender.instanceId, ...splashTargets.map((s) => s.instanceId)],
+    text: defenderShielded
+      ? `${nameOf(defender)}'s Divine Shield absorbs the hit.`
+      : `${hitNames} ${splashTargets.length ? 'take' : 'takes'} ${attackerAtk} damage.`,
+  });
 
-  handleDeath(defender, defenderBoard, attackerBoard, logs);
-  handleDeath(attacker, attackerBoard, defenderBoard, logs);
+  // Overkill: excess damage on a kill.
+  if (defender.health < 0 && attackerAtk > 0) {
+    battle.fireTriggers('onOverkill', side, attacker);
+  }
+
+  // Frenzy-style: survived damage.
+  if (!defenderShielded && defenderAtk >= 0 && defender.health > 0 && attackerAtk > 0) {
+    battle.fireTriggers('afterSelfSurvivesDamage', defSide, defender);
+  }
+  if (!attackerShielded && defenderAtk > 0 && attacker.health > 0) {
+    battle.fireTriggers('afterSelfSurvivesDamage', side, attacker);
+  }
+
+  battle.fireTriggers('afterSelfAttacks', side, attacker);
+  battle.cleanupDeaths();
 }
 
-function performAttack(
-  attackers: MinionInstance[],
-  defenders: MinionInstance[],
-  pointer: number,
-  logs: string[],
-): number {
-  const idx = findNextAlive(attackers, pointer);
+function performTurn(battle: Battle, side: Side, pointer: number): number {
+  const board = battle.board(side);
+  const n = board.length;
+  if (n === 0) return pointer;
+
+  let idx = -1;
+  for (let i = 0; i < n; i++) {
+    const candidate = (pointer + i) % n;
+    if (board[candidate].health > 0 && board[candidate].attack > 0) {
+      idx = candidate;
+      break;
+    }
+  }
   if (idx === -1) return pointer;
-  const attacker = attackers[idx];
-  const strikes = attacker.keywords.has('MegaWindfury') ? 4 : attacker.keywords.has('Windfury') ? 2 : 1;
+
+  const attacker = board[idx];
+  const strikes = attacker.keywords.has('MegaWindfury')
+    ? 4
+    : attacker.keywords.has('Windfury')
+      ? 2
+      : 1;
+
   for (let s = 0; s < strikes; s++) {
-    if (attacker.health <= 0) break;
-    if (aliveCount(defenders) === 0) break;
-    const defender = chooseDefender(defenders);
-    if (!defender) break;
-    resolveTrade(attacker, defender, attackers, defenders, logs);
+    if (attacker.health <= 0 || battle.aliveCount(side === 'a' ? 'b' : 'a') === 0) break;
+    resolveAttack(battle, side, attacker);
   }
   return idx + 1;
 }
 
-function runStartOfCombat(
-  side: MinionInstance[],
-  enemySide: MinionInstance[],
-  logs: string[],
-): void {
-  for (const m of [...side]) {
-    if (m.health <= 0) continue;
-    const def = CARDS_BY_ID[m.cardId];
-    if (!def?.startOfCombat) continue;
-    const ctx: EffectContext = {
-      self: m,
-      ownerBoard: side,
-      enemyBoard: enemySide,
-      log: (t) => logs.push(t),
-    };
-    applyEffects(def.startOfCombat, ctx);
+function drainQueuedAttacks(battle: Battle): void {
+  let guard = 0;
+  let queued = battle.takeQueuedAttack();
+  while (queued && guard < 20) {
+    guard += 1;
+    if (queued.minion.health > 0) resolveAttack(battle, queued.side, queued.minion);
+    queued = battle.takeQueuedAttack();
   }
 }
 
+// --------------------------------------------------------------------------
+// Public entry point
+// --------------------------------------------------------------------------
+
 export interface CombatOutcome {
+  steps: CombatStep[];
   logs: string[];
-  aFinalBoard: MinionInstance[];
-  bFinalBoard: MinionInstance[];
   aSurvived: boolean;
   bSurvived: boolean;
   draw: boolean;
+  aFinalBoard: MinionInstance[];
+  bFinalBoard: MinionInstance[];
 }
 
-export function simulateCombat(boardA: MinionInstance[], boardB: MinionInstance[]): CombatOutcome {
-  const logs: string[] = [];
-  const a = boardA.map(cloneForCombat);
-  const b = boardB.map(cloneForCombat);
+export function simulateCombat(
+  boardA: MinionInstance[],
+  boardB: MinionInstance[],
+): CombatOutcome {
+  const a = boardA.map(prepareForCombat);
+  const b = boardB.map(prepareForCombat);
+  recomputeAuras(a);
+  recomputeAuras(b);
+
+  const battle = new Battle(a, b);
+  battle.push({ kind: 'start', text: 'The battle begins!' });
 
   if (a.length === 0 && b.length === 0) {
-    return { logs, aFinalBoard: [], bFinalBoard: [], aSurvived: false, bSurvived: false, draw: true };
+    battle.push({ kind: 'end', text: 'Both crews are empty — a draw.' });
+    return {
+      steps: battle.steps,
+      logs: battle.logs,
+      aSurvived: false,
+      bSurvived: false,
+      draw: true,
+      aFinalBoard: [],
+      bFinalBoard: [],
+    };
   }
 
-  runStartOfCombat(a, b, logs);
-  runStartOfCombat(b, a, logs);
+  battle.fireTriggers('startOfCombat', 'a');
+  battle.fireTriggers('startOfCombat', 'b');
+  battle.cleanupDeaths();
+  drainQueuedAttacks(battle);
 
-  let turn: 'A' | 'B' = a.length > b.length ? 'A' : b.length > a.length ? 'B' : Math.random() < 0.5 ? 'A' : 'B';
+  let turn: Side =
+    a.length > b.length ? 'a' : b.length > a.length ? 'b' : Math.random() < 0.5 ? 'a' : 'b';
   let pointerA = 0;
   let pointerB = 0;
-  let safety = 0;
+  let guard = 0;
 
-  while (aliveCount(a) > 0 && aliveCount(b) > 0 && safety < 500) {
-    safety += 1;
-    if (turn === 'A') {
-      pointerA = performAttack(a, b, pointerA, logs);
-    } else {
-      pointerB = performAttack(b, a, pointerB, logs);
-    }
-    turn = turn === 'A' ? 'B' : 'A';
+  while (battle.aliveCount('a') > 0 && battle.aliveCount('b') > 0 && guard < 300) {
+    guard += 1;
+    if (turn === 'a') pointerA = performTurn(battle, 'a', pointerA);
+    else pointerB = performTurn(battle, 'b', pointerB);
+    drainQueuedAttacks(battle);
+
+    // Neither side can still deal damage — stop rather than spin.
+    const aCanAct = battle.board('a').some((m) => m.health > 0 && m.attack > 0);
+    const bCanAct = battle.board('b').some((m) => m.health > 0 && m.attack > 0);
+    if (!aCanAct && !bCanAct) break;
+
+    turn = turn === 'a' ? 'b' : 'a';
   }
 
-  const aSurvived = aliveCount(a) > 0;
-  const bSurvived = aliveCount(b) > 0;
+  const aSurvived = battle.aliveCount('a') > 0;
+  const bSurvived = battle.aliveCount('b') > 0;
+  battle.push({
+    kind: 'end',
+    text: aSurvived && !bSurvived ? 'Victory!' : bSurvived && !aSurvived ? 'Defeat.' : 'A draw.',
+  });
+
   return {
-    logs,
-    aFinalBoard: a.filter((m) => m.health > 0),
-    bFinalBoard: b.filter((m) => m.health > 0),
+    steps: battle.steps,
+    logs: battle.logs,
     aSurvived,
     bSurvived,
-    draw: !aSurvived && !bSurvived,
+    draw: aSurvived === bSurvived,
+    aFinalBoard: battle.board('a').filter((m) => m.health > 0),
+    bFinalBoard: battle.board('b').filter((m) => m.health > 0),
   };
-}
-
-/** Reverts survivors to their pre-combat (persistent) stats — damage & Frenzy
- * buffs heal between fights, only keyword consumption (Divine Shield/Reborn
- * being used up) and deaths persist — and mints fresh instances for anything
- * summoned mid-fight (tokens, Reborn copies). */
-export function syncBoardAfterCombat(
-  persistentBoard: MinionInstance[],
-  finalEphemeral: MinionInstance[],
-): MinionInstance[] {
-  const result: MinionInstance[] = [];
-  for (const em of finalEphemeral) {
-    const persisted = persistentBoard.find((p) => p.instanceId === em.instanceId);
-    if (persisted) {
-      const keptKeywords = new Set<Keyword>();
-      for (const k of persisted.keywords) if (em.keywords.has(k)) keptKeywords.add(k);
-      result.push({
-        ...persisted,
-        keywords: keptKeywords,
-        pendingAttack: 0,
-        pendingHealth: 0,
-        pendingKeywords: [],
-      });
-    } else {
-      const def = CARDS_BY_ID[em.cardId];
-      result.push({
-        instanceId: em.instanceId,
-        cardId: em.cardId,
-        attack: em.baseAttack,
-        health: em.baseHealth,
-        baseAttack: em.baseAttack,
-        baseHealth: em.baseHealth,
-        keywords: new Set(def?.keywords ?? []),
-        isGolden: em.isGolden,
-      });
-    }
-  }
-  return result;
 }
 
 const TIER_DAMAGE: Record<number, number> = { 1: 3, 2: 4, 3: 5, 4: 6, 5: 7, 6: 8 };
@@ -268,6 +423,5 @@ export function computeCombatDamage(
   survivingWinnerBoard: MinionInstance[],
 ): number {
   const base = TIER_DAMAGE[Math.min(Math.max(winnerTavernTier, 1), 6)] ?? 8;
-  const bonus = survivingWinnerBoard.reduce((sum, m) => sum + (m.isGolden ? 2 : 1), 0);
-  return base + bonus;
+  return base + survivingWinnerBoard.reduce((sum, m) => sum + (CARDS_BY_ID[m.cardId]?.tier ?? 1), 0);
 }

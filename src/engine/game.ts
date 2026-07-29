@@ -1,10 +1,10 @@
 import { HEROES } from '../data/heroes';
 import { runBotTurn } from './bot';
-import { computeCombatDamage, simulateCombat } from './combat';
+import { computeCombatDamage, simulateCombat, type CombatStep } from './combat';
 import { maybeApplyPassiveHeroPower } from './heroPowers';
 import { pairPlayers } from './pairing';
 import { createPool, goldForTurn } from './pool';
-import { refreshShop } from './shop';
+import { fireShopTriggers, refreshShop } from './shop';
 import type { CombatSummary, GameState, HeroDef, MinionInstance, PlayerState, Tribe } from './types';
 
 const BOT_NAME_SUFFIXES = [
@@ -51,6 +51,8 @@ function makePlayer(
     heroPowerBanked: false,
     tavernTier: 1,
     turnReachedCurrentTier: 1,
+    upgradeDiscount: 0,
+    freeRefreshes: 0,
     gold: 3,
     maxGold: 10,
     goldBankNextTurn: 0,
@@ -173,6 +175,20 @@ export function allHumansReady(state: GameState): boolean {
     .every((p) => p.ready);
 }
 
+/** Flips a battle replay so the opponent watches it from their own side. */
+function mirrorSteps(steps: CombatStep[]): CombatStep[] {
+  const flip = (side?: 'a' | 'b') => (side === 'a' ? 'b' : side === 'b' ? 'a' : undefined);
+  return steps.map((s) => ({
+    ...s,
+    a: s.b,
+    b: s.a,
+    actorSide: flip(s.actorSide),
+    targetSide: flip(s.targetSide),
+    text:
+      s.text === 'Victory!' ? 'Defeat.' : s.text === 'Defeat.' ? 'Victory!' : s.text,
+  }));
+}
+
 function deepCopyBoard(board: MinionInstance[]): MinionInstance[] {
   return board.map((m) => ({ ...m, keywords: new Set(m.keywords) }));
 }
@@ -219,6 +235,7 @@ function resolveOneFight(
       isBye: opponent === null,
       playerBoardBefore,
       opponentBoardBefore,
+      steps: outcome.steps,
       logs: outcome.logs,
       result,
       damageDealt,
@@ -236,6 +253,7 @@ function resolveOneFight(
       isBye: false,
       playerBoardBefore: opponentBoardBefore,
       opponentBoardBefore: playerBoardBefore,
+      steps: mirrorSteps(outcome.steps),
       logs: outcome.logs,
       result: mirrored,
       damageDealt,
@@ -257,6 +275,10 @@ function assignPlacements(newlyDead: PlayerState[], aliveBeforeCount: number): v
 export function resolveCombatPhase(state: GameState): void {
   state.phase = 'COMBAT';
   const alive = alivePlayers(state);
+
+  // "At the end of your turn" abilities resolve before any fighting starts.
+  for (const p of alive) fireShopTriggers(p, 'endOfTurn');
+
   const aliveBeforeCount = alive.length;
 
   const ghostSnapshots = new Map<string, MinionInstance[]>();

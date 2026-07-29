@@ -12,7 +12,9 @@ function scoreCard(card: CardDef, bot: PlayerState): number {
   if (card.keywords.includes('Reborn')) score += 2;
   if (card.battlecry) score += 2;
   if (card.deathrattle) score += 1;
-  if (card.frenzy) score += 1;
+  if (card.triggers?.length) score += 2;
+  if (card.aura) score += 3;
+  if (card.modifier) score += 4;
   if (bot.botTribeBias && card.tribe === bot.botTribeBias) {
     const alreadyOnBoard = bot.board.filter(
       (m) => CARDS_BY_ID[m.cardId]?.tribe === card.tribe,

@@ -1,5 +1,12 @@
 import { CARDS_BY_ID } from '../data/cards';
-import { applyEffects, type EffectContext } from './effects';
+import {
+  applyEffects,
+  defOf,
+  hasModifier,
+  recomputeAuras,
+  tribeOf,
+  type EffectContext,
+} from './effects';
 import { instantiateMinion } from './minion';
 import {
   drawFromPool,
@@ -8,7 +15,7 @@ import {
   tavernUpgradeCost,
   type Pool,
 } from './pool';
-import type { CardDef, PlayerState } from './types';
+import type { CardDef, Effect, MinionInstance, PlayerState, TriggerEvent } from './types';
 
 export const BUY_COST = 3;
 export const SELL_REFUND = 1;
@@ -16,35 +23,95 @@ export const REROLL_COST = 1;
 export const MAX_TAVERN_TIER = 6;
 export const MAX_BOARD_SIZE = 7;
 
+export interface BuyResult {
+  ok: boolean;
+  reason?: string;
+}
+
+/** Recruit-phase effect context. Combat-only hooks are absent, so effects that
+ * need a battle (damage, summon-and-attack) simply do nothing here. */
+function shopContext(
+  player: PlayerState,
+  self: MinionInstance,
+  eventSubject?: MinionInstance,
+): EffectContext {
+  return {
+    self,
+    ownerBoard: player.board,
+    eventSubject,
+    heroDamageTaken: player.maxHealth - player.health,
+    onGainGold: (amt) => {
+      player.gold = Math.min(player.maxGold, player.gold + amt);
+    },
+    onAddToHand: (card) => {
+      if (player.hand.length < 10) player.hand.push(instantiateMinion(card));
+    },
+    onFreeRefresh: () => {
+      player.freeRefreshes += 1;
+    },
+    onReduceUpgradeCost: (amt) => {
+      player.upgradeDiscount += amt;
+    },
+  };
+}
+
+/** Fires a recruit-phase trigger across the player's board. */
+export function fireShopTriggers(
+  player: PlayerState,
+  event: TriggerEvent,
+  subject?: MinionInstance,
+): void {
+  for (const m of [...player.board]) {
+    const triggers = defOf(m)?.triggers;
+    if (!triggers) continue;
+    for (const trigger of triggers) {
+      if (trigger.on !== event) continue;
+      if (trigger.tribe && subject && tribeOf(subject) !== trigger.tribe) continue;
+      // "After you play a minion with Battlecry" — no tribe filter, but the
+      // subject must actually have a Battlecry.
+      if (event === 'afterYouPlay' && !trigger.tribe && subject && !defOf(subject)?.battlecry) {
+        continue;
+      }
+      const times = m.isGolden ? 2 : 1;
+      for (let i = 0; i < times; i++) {
+        applyEffects(trigger.effects, shopContext(player, m, subject));
+        applyHeroSelfDamage(player, trigger.effects);
+      }
+    }
+  }
+  recomputeAuras(player.board);
+}
+
+/** damageOwnHero is resolved here rather than in effects.ts because only the
+ * shop layer owns the player's health. */
+function applyHeroSelfDamage(player: PlayerState, effects: Effect[]): void {
+  for (const e of effects) {
+    if (e.type === 'damageOwnHero') {
+      player.health = Math.max(0, player.health - e.amount);
+    }
+  }
+}
+
 export function refreshShop(player: PlayerState, pool: Pool, opts: { free?: boolean } = {}): void {
   if (player.frozen && !opts.free) {
     player.frozen = false;
     return;
   }
-  for (const card of player.shop) {
-    if (card) returnToPool(pool, card.id, 1);
-  }
+  for (const card of player.shop) if (card) returnToPool(pool, card.id, 1);
   const size = shopSizeForTavernTier(player.tavernTier);
-  const next: (CardDef | null)[] = [];
-  for (let i = 0; i < size; i++) {
-    next.push(drawFromPool(pool, player.tavernTier));
-  }
-  player.shop = next;
+  player.shop = Array.from({ length: size }, () => drawFromPool(pool, player.tavernTier));
   player.frozen = false;
 }
 
 export function manualReroll(player: PlayerState, pool: Pool): boolean {
-  if (player.gold < REROLL_COST) return false;
-  player.gold -= REROLL_COST;
-  for (const card of player.shop) {
-    if (card) returnToPool(pool, card.id, 1);
-  }
+  const free = player.freeRefreshes > 0;
+  if (!free && player.gold < REROLL_COST) return false;
+  if (free) player.freeRefreshes -= 1;
+  else player.gold -= REROLL_COST;
+
+  for (const card of player.shop) if (card) returnToPool(pool, card.id, 1);
   const size = shopSizeForTavernTier(player.tavernTier);
-  const next: (CardDef | null)[] = [];
-  for (let i = 0; i < size; i++) {
-    next.push(drawFromPool(pool, player.tavernTier));
-  }
-  player.shop = next;
+  player.shop = Array.from({ length: size }, () => drawFromPool(pool, player.tavernTier));
   player.frozen = false;
   return true;
 }
@@ -53,9 +120,8 @@ export function toggleFreeze(player: PlayerState): void {
   player.frozen = !player.frozen;
 }
 
-// Combining 3 copies consumes them permanently into 1 golden minion — they
-// only return to the shared pool if the golden minion is later sold (see
-// sellMinion), so no pool interaction happens here.
+// Combining 3 copies consumes them into 1 golden minion; they only return to
+// the shared pool if that golden minion is later sold.
 function checkAndCombineTriples(player: PlayerState, cardId: string): void {
   const matches = player.board.filter((m) => m.cardId === cardId && !m.isGolden);
   if (matches.length < 3) return;
@@ -67,19 +133,29 @@ function checkAndCombineTriples(player: PlayerState, cardId: string): void {
   }
   const def = CARDS_BY_ID[cardId];
   if (!def) return;
-  const golden = instantiateMinion(def, true);
-  const insertAt = Math.min(firstIdx, player.board.length);
-  player.board.splice(insertAt, 0, golden);
+  player.board.splice(Math.min(firstIdx, player.board.length), 0, instantiateMinion(def, true));
   player.triplesThisGame += 1;
 }
 
-export interface BuyResult {
-  ok: boolean;
-  reason?: string;
+function playMinion(player: PlayerState, card: CardDef, minion: MinionInstance): void {
+  player.board.push(minion);
+
+  const battlecryTimes =
+    (minion.isGolden ? 2 : 1) * hasModifier(player.board, 'doubleBattlecry');
+  if (card.battlecry) {
+    for (let i = 0; i < battlecryTimes; i++) {
+      applyEffects(card.battlecry, shopContext(player, minion));
+      applyHeroSelfDamage(player, card.battlecry);
+    }
+  }
+
+  // The minion entering the board is itself a summon event.
+  fireShopTriggers(player, 'afterFriendlySummoned', minion);
+  fireShopTriggers(player, 'afterYouPlay', minion);
+  checkAndCombineTriples(player, card.id);
+  recomputeAuras(player.board);
 }
 
-// `pool` is accepted (unused) so buy/sell/reroll/upgrade share one call
-// signature across the UI layer.
 export function buyMinion(player: PlayerState, _pool: Pool, shopIndex: number): BuyResult {
   const card = player.shop[shopIndex];
   if (!card) return { ok: false, reason: 'Empty slot' };
@@ -88,65 +164,79 @@ export function buyMinion(player: PlayerState, _pool: Pool, shopIndex: number): 
 
   player.gold -= BUY_COST;
   player.shop[shopIndex] = null;
-  const minion = instantiateMinion(card);
-  player.board.push(minion);
+  playMinion(player, card, instantiateMinion(card));
+  return { ok: true };
+}
 
-  if (card.battlecry) {
-    const ctx: EffectContext = {
-      self: minion,
-      ownerBoard: player.board,
-      onGainGold: (amt) => {
-        player.gold = Math.min(player.maxGold, player.gold + amt);
-      },
-    };
-    applyEffects(card.battlecry, ctx);
-  }
-
-  checkAndCombineTriples(player, card.id);
+/** Plays a minion sitting in hand (from Sellemental-style effects). */
+export function playFromHand(player: PlayerState, instanceId: string): BuyResult {
+  const idx = player.hand.findIndex((m) => m.instanceId === instanceId);
+  if (idx === -1) return { ok: false, reason: 'Not in hand' };
+  if (player.board.length >= MAX_BOARD_SIZE) return { ok: false, reason: 'Board is full' };
+  const minion = player.hand[idx];
+  const card = CARDS_BY_ID[minion.cardId];
+  if (!card) return { ok: false, reason: 'Unknown card' };
+  player.hand.splice(idx, 1);
+  playMinion(player, card, minion);
   return { ok: true };
 }
 
 export function sellMinion(player: PlayerState, pool: Pool, boardIndex: number): BuyResult {
   const minion = player.board[boardIndex];
   if (!minion) return { ok: false, reason: 'No minion there' };
+  const def = defOf(minion);
+
   player.board.splice(boardIndex, 1);
-  player.gold = Math.min(player.maxGold, player.gold + SELL_REFUND);
+  player.gold = Math.min(player.maxGold, player.gold + (def?.sellValue ?? SELL_REFUND));
   returnToPool(pool, minion.cardId, minion.isGolden ? 3 : 1);
+
+  // Sell triggers fire from the minion that just left the board.
+  if (def?.triggers?.some((t) => t.on === 'afterSelfSold')) {
+    for (const trigger of def.triggers) {
+      if (trigger.on !== 'afterSelfSold') continue;
+      const times = minion.isGolden ? 2 : 1;
+      for (let i = 0; i < times; i++) {
+        applyEffects(trigger.effects, shopContext(player, minion));
+      }
+    }
+  }
+  recomputeAuras(player.board);
   return { ok: true };
 }
 
-export function reorderMinion(
-  player: PlayerState,
-  instanceId: string,
-  toIndex: number,
-): BuyResult {
-  const from = player.board.findIndex((m) => m.instanceId === instanceId);
-  if (from === -1) return { ok: false, reason: 'No minion there' };
-  const clamped = Math.max(0, Math.min(toIndex, player.board.length - 1));
-  const [minion] = player.board.splice(from, 1);
-  player.board.splice(clamped, 0, minion);
-  return { ok: true };
-}
-
-export function tavernUpgradeCostFor(player: PlayerState, currentTurn: number): number {
-  if (player.tavernTier >= MAX_TAVERN_TIER) return Infinity;
-  return tavernUpgradeCost(player.tavernTier + 1, currentTurn, player.turnReachedCurrentTier);
+export function tavernUpgradeCostFor(player: PlayerState, currentTurn: number): number | null {
+  if (player.tavernTier >= MAX_TAVERN_TIER) return null;
+  const base = tavernUpgradeCost(
+    player.tavernTier + 1,
+    currentTurn,
+    player.turnReachedCurrentTier,
+  );
+  return Math.max(0, base - player.upgradeDiscount);
 }
 
 export function upgradeTavern(player: PlayerState, pool: Pool, currentTurn: number): BuyResult {
-  if (player.tavernTier >= MAX_TAVERN_TIER) return { ok: false, reason: 'Max tier reached' };
-  const targetTier = player.tavernTier + 1;
-  const cost = tavernUpgradeCost(targetTier, currentTurn, player.turnReachedCurrentTier);
+  const cost = tavernUpgradeCostFor(player, currentTurn);
+  if (cost === null) return { ok: false, reason: 'Already max tier' };
   if (player.gold < cost) return { ok: false, reason: 'Not enough gold' };
+
   player.gold -= cost;
-  player.tavernTier = targetTier;
+  player.tavernTier += 1;
   player.turnReachedCurrentTier = currentTurn;
+  player.upgradeDiscount = 0;
 
   const size = shopSizeForTavernTier(player.tavernTier);
-  const nonNullCount = player.shop.filter((c) => c !== null).length;
-  const need = size - nonNullCount;
-  for (let i = 0; i < need; i++) {
-    player.shop.push(drawFromPool(pool, player.tavernTier));
-  }
+  const need = size - player.shop.filter((c) => c !== null).length;
+  for (let i = 0; i < need; i++) player.shop.push(drawFromPool(pool, player.tavernTier));
   return { ok: true };
+}
+
+export function reorderMinion(player: PlayerState, instanceId: string, toIndex: number): boolean {
+  const from = player.board.findIndex((m) => m.instanceId === instanceId);
+  if (from === -1) return false;
+  const clamped = Math.max(0, Math.min(toIndex, player.board.length - 1));
+  if (from === clamped) return false;
+  const [m] = player.board.splice(from, 1);
+  player.board.splice(clamped, 0, m);
+  recomputeAuras(player.board);
+  return true;
 }

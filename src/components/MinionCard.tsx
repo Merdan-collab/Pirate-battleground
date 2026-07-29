@@ -21,7 +21,7 @@ const KEYWORD_ICON: Record<Keyword, { icon: string; label: string }> = {
   Windfury: { icon: '🌀', label: 'Windfury — attacks twice' },
   MegaWindfury: { icon: '🌀', label: 'Mega Windfury — attacks four times' },
   Reborn: { icon: '♻', label: 'Reborn — returns once with 1 Health' },
-  Stealth: { icon: '🫥', label: 'Stealth' },
+  Cleave: { icon: '🌊', label: 'Cleave — also hits the minions beside the target' },
 };
 
 export interface CardView {
@@ -79,8 +79,10 @@ function abilityText(view: CardView): string {
   const parts: string[] = [];
   if (def.battlecry) parts.push('Battlecry');
   if (def.deathrattle) parts.push('Deathrattle');
-  if (def.frenzy) parts.push('Frenzy');
-  return parts.join(' · ');
+  if (def.aura) parts.push('Aura');
+  if (def.modifier) parts.push('Passive');
+  if (def.triggers?.length) parts.push('Trigger');
+  return parts.slice(0, 2).join(' · ');
 }
 
 interface MinionCardProps {

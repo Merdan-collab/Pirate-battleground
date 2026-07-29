@@ -103,6 +103,20 @@ Neutral minions belong to no faction and work with every build.
 - **Poisonous** — any damage it deals destroys the target
 - **Windfury** — attacks twice per turn
 - **Reborn** — returns once with 1 health when it dies
+- **Cleave** — also damages the minions beside the target
+
+## Abilities
+
+Minions use the same ability set as Battlegrounds, renamed to fit the setting —
+Battlecries, Deathrattles, auras ("your other X have +1/+1"), Start of Combat,
+Overkill, and triggers that fire when you play a minion, sell one, summon one,
+lose one, survive damage, attack, or end your turn. The board-wide rule
+benders are here too: Nico Robin doubles your Battlecries, Trafalgar Law
+doubles your Deathrattles, and the Devil Fruit Scholar doubles your summons.
+
+Combat plays out as an animated battle you watch — minions lunge, targets
+recoil, triggers flare, and summons appear as they happen. You can run it at
+2× speed or skip straight to the result.
 
 ## Project layout
 

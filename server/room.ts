@@ -228,8 +228,7 @@ export class Room {
         return r.ok ? null : (r.reason ?? 'Cannot use hero power');
       }
       case 'REORDER': {
-        const r = reorderMinion(player, msg.instanceId, msg.toIndex);
-        return r.ok ? null : (r.reason ?? 'Cannot reorder');
+        return reorderMinion(player, msg.instanceId, msg.toIndex) ? null : 'Cannot move';
       }
       case 'READY': {
         player.ready = true;

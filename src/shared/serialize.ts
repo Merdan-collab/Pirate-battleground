@@ -62,6 +62,7 @@ function toWireCombat(s: CombatSummary): WireCombatSummary {
   return {
     opponentName: s.opponentName,
     isBye: s.isBye,
+    steps: s.steps,
     playerBoardBefore: s.playerBoardBefore.map(toWireMinion),
     opponentBoardBefore: s.opponentBoardBefore.map(toWireMinion),
     logs: s.logs,

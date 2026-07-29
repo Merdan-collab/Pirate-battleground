@@ -1,6 +1,7 @@
 // Core type system for the auto-battler engine.
 // Mirrors Hearthstone Battlegrounds mechanics: shop/tavern economy, tiered minion
-// pool, tribe synergies, golden triples, and positional auto-combat.
+// pool, tribe synergies, golden triples, positional auto-combat, and the
+// event-driven trigger system that most Battlegrounds minions are built on.
 
 export type Tribe =
   | 'BIG_MOM_VINSMOKE' // was Quilboar
@@ -14,7 +15,7 @@ export type Tribe =
 
 export const TRIBE_NAMES: Record<Tribe, string> = {
   BIG_MOM_VINSMOKE: 'Big Mom & Vinsmoke',
-  MARINE_WORLD_GOV: 'Marines & World Government',
+  MARINE_WORLD_GOV: 'Marines & World Gov.',
   KAIDO_DOFLAMINGO: 'Kaido & Doflamingo',
   STRAWHAT_ALLIANCE: 'Straw Hat Alliance',
   REVOLUTIONARY_ARMY: 'Revolutionary Army',
@@ -23,16 +24,15 @@ export const TRIBE_NAMES: Record<Tribe, string> = {
   NONE: 'Neutral',
 };
 
-export const TRIBE_BLURB: Record<Tribe, string> = {
-  BIG_MOM_VINSMOKE: 'Family Bond: grow stronger after surviving damage in combat.',
-  MARINE_WORLD_GOV: 'Reinforcements: Deathrattles call in fresh marine troops.',
-  KAIDO_DOFLAMINGO: 'Raw Power: huge stats, and neighbours are enraged when one falls.',
-  STRAWHAT_ALLIANCE: 'Chain Reaction: every new ally lifts the rest of the crew.',
-  REVOLUTIONARY_ARMY: 'Liberation: few but mighty minions that empower the whole board.',
-  GOROSEI_ADMIRAL: 'Absolute Power: sacrifice your own minions for enormous value.',
-  FREE_PIRATES: 'Swarm: cheap crews that buff each other as new members arrive.',
-  NONE: '',
-};
+export const ALL_TRIBES: Tribe[] = [
+  'BIG_MOM_VINSMOKE',
+  'MARINE_WORLD_GOV',
+  'KAIDO_DOFLAMINGO',
+  'STRAWHAT_ALLIANCE',
+  'REVOLUTIONARY_ARMY',
+  'GOROSEI_ADMIRAL',
+  'FREE_PIRATES',
+];
 
 export type Keyword =
   | 'Taunt'
@@ -41,7 +41,7 @@ export type Keyword =
   | 'Windfury'
   | 'MegaWindfury'
   | 'Reborn'
-  | 'Stealth';
+  | 'Cleave';
 
 export type TargetSelector =
   | 'self'
@@ -50,24 +50,26 @@ export type TargetSelector =
   | 'randomFriendly'
   | 'randomOtherFriendly'
   | 'adjacent'
-  | 'leftAdjacent'
-  | 'rightAdjacent'
+  | 'leftmost'
+  | 'rightmost'
   | 'highestAttackFriendly'
-  | 'lowestHealthFriendly';
+  | 'lowestAttackFriendly'
+  | 'eventSubject'; // the minion that caused the trigger to fire
 
-export interface EffectBuffSelf {
-  type: 'buffSelf';
-  attack: number;
-  health: number;
-}
+// --------------------------------------------------------------------------
+// Effects
+// --------------------------------------------------------------------------
 
-export interface EffectBuffFriendly {
-  type: 'buffFriendly';
-  attack: number;
-  health: number;
+export interface EffectBuff {
+  type: 'buff';
   target: TargetSelector;
-  count?: number; // for random selectors, how many targets
+  attack: number;
+  health: number;
+  count?: number; // for random selectors
   tribe?: Tribe; // restrict to a tribe
+  /** Scales the buff by how many friendly minions of this tribe are on board. */
+  perTribeCount?: Tribe;
+  includeSelfInCount?: boolean;
 }
 
 export interface EffectGainKeyword {
@@ -82,16 +84,31 @@ export interface EffectSummon {
   type: 'summon';
   cardId: string;
   count: number;
+  /** Scallywag's token: attacks the moment it arrives. */
+  attackImmediately?: boolean;
 }
 
-export interface EffectDamageRandomEnemy {
-  type: 'damageRandomEnemy';
+/** Ghastcoiler / The Tide Razor: summon random minions matching a filter. */
+export interface EffectSummonRandom {
+  type: 'summonRandom';
+  count: number;
+  tribe?: Tribe;
+  maxTier?: number;
+  requireDeathrattle?: boolean;
+  withTaunt?: boolean;
+}
+
+export interface EffectDamageEnemy {
+  type: 'damageEnemy';
   amount: number;
   count?: number;
+  /** Red Whelp: damage equals the number of friendly minions of this tribe. */
+  perTribeCount?: Tribe;
+  target?: 'random' | 'all' | 'leftmost' | 'adjacentToTarget';
 }
 
-export interface EffectDamageAllEnemies {
-  type: 'damageAllEnemies';
+export interface EffectDamageSelfHero {
+  type: 'damageOwnHero';
   amount: number;
 }
 
@@ -100,67 +117,113 @@ export interface EffectGainGold {
   amount: number;
 }
 
-export interface EffectAddRandomToHand {
-  type: 'addRandomToHand';
+export interface EffectAddToHand {
+  type: 'addToHand';
+  count: number;
   tribe?: Tribe;
-  tier?: number;
+  /** Exact card to add; otherwise a random one matching the filters. */
+  cardId?: string;
+  atTavernTier?: boolean;
+}
+
+export interface EffectFreeRefresh {
+  type: 'freeRefresh';
+}
+
+export interface EffectReduceUpgradeCost {
+  type: 'reduceUpgradeCost';
+  amount: number;
+}
+
+/** Monstrous Macaw: fire another friendly minion's Deathrattle. */
+export interface EffectTriggerFriendlyDeathrattle {
+  type: 'triggerFriendlyDeathrattle';
   count: number;
 }
 
-export interface EffectDamageSelf {
-  type: 'damageSelf';
-  amount: number;
+export interface EffectDoubleAttack {
+  type: 'doubleAttack';
+  target: TargetSelector;
 }
 
-export interface EffectBuffSelfPerTribeCount {
-  type: 'buffSelfPerTribeCount';
-  tribe: Tribe;
-  attack: number;
-  health: number;
-  includeSelf?: boolean;
+/** Annihilan Battlemaster: +Health for damage the owning hero has taken. */
+export interface EffectBuffPerHeroDamage {
+  type: 'buffPerHeroDamage';
+  healthPerDamage: number;
 }
 
-export interface EffectSacrificeFriendlyForSelf {
-  type: 'sacrificeFriendlyForSelf';
-  damage: number;
-  attack: number;
-  health: number;
-}
-
-export interface EffectDamageAllFriendly {
-  type: 'damageAllFriendly';
-  amount: number;
-  excludeSelf?: boolean;
+export interface EffectAttackImmediately {
+  type: 'attackImmediately';
+  target: TargetSelector;
 }
 
 export type Effect =
-  | EffectBuffSelf
-  | EffectBuffFriendly
+  | EffectBuff
   | EffectGainKeyword
   | EffectSummon
-  | EffectDamageRandomEnemy
-  | EffectDamageAllEnemies
+  | EffectSummonRandom
+  | EffectDamageEnemy
+  | EffectDamageSelfHero
   | EffectGainGold
-  | EffectAddRandomToHand
-  | EffectDamageSelf
-  | EffectBuffSelfPerTribeCount
-  | EffectSacrificeFriendlyForSelf
-  | EffectDamageAllFriendly;
+  | EffectAddToHand
+  | EffectFreeRefresh
+  | EffectReduceUpgradeCost
+  | EffectTriggerFriendlyDeathrattle
+  | EffectDoubleAttack
+  | EffectBuffPerHeroDamage
+  | EffectAttackImmediately;
 
-// Aura: a continuously-recalculated buff, e.g. "your other Strawhat-allierede have +1/+1
-// for each other Strawhat-allieret you have". Recomputed at start of every combat.
+// --------------------------------------------------------------------------
+// Triggers
+// --------------------------------------------------------------------------
+
+export type TriggerEvent =
+  /** Recruit phase: you bought/played a minion from the tavern. */
+  | 'afterYouPlay'
+  /** Recruit phase: this minion was sold. */
+  | 'afterSelfSold'
+  /** Recruit phase: end of your turn. */
+  | 'endOfTurn'
+  /** Combat: any friendly minion (including tokens) entered the board. */
+  | 'afterFriendlySummoned'
+  /** Combat: a friendly minion died. */
+  | 'afterFriendlyDies'
+  /** Combat: this minion took damage and lived (Frenzy / Imp Gang Boss). */
+  | 'afterSelfSurvivesDamage'
+  /** Combat: this minion attacked. */
+  | 'afterSelfAttacks'
+  /** Combat: this minion killed with excess damage. */
+  | 'onOverkill'
+  /** Combat: fires once before the first attack. */
+  | 'startOfCombat';
+
+export interface Trigger {
+  on: TriggerEvent;
+  /** Only fire when the minion that caused the event has this tribe. */
+  tribe?: Tribe;
+  /** Fires at most once per combat (Frenzy-style). */
+  oncePerCombat?: boolean;
+  effects: Effect[];
+}
+
+/** Continuously-applied buff, e.g. "Your other Pirates have +1/+1".
+ * Recomputed from base stats whenever the board changes. */
 export interface Aura {
-  tribe: Tribe; // aura applies to friendly minions of this tribe
-  perTribeCountOnBoard?: Tribe; // if set, scales with count of this tribe on board
+  tribe?: Tribe;
   attack: number;
   health: number;
-  affectsSelf?: boolean;
+  keyword?: Keyword;
 }
+
+/** Board-wide rule modifiers (Brann / Baron Rivendare / Khadgar). */
+export type GlobalModifier = 'doubleBattlecry' | 'doubleDeathrattle' | 'doubleSummon';
 
 export interface CardDef {
   id: string;
   name: string;
-  flavor: string; // short one-piece flavored description
+  /** Rules text, written the way the card would read in hand. */
+  text: string;
+  flavor: string;
   tier: number; // 1-6
   tribe: Tribe;
   attack: number;
@@ -168,13 +231,12 @@ export interface CardDef {
   keywords: Keyword[];
   battlecry?: Effect[];
   deathrattle?: Effect[];
-  startOfCombat?: Effect[];
-  /** Big Mom & Vinsmoke signature trigger: fires once per combat, the first time
-   * this minion takes damage and survives. */
-  frenzy?: Effect[];
+  triggers?: Trigger[];
   aura?: Aura;
-  isToken?: boolean; // tokens are not purchasable/rollable, only summoned
-  poolCount?: number; // copies in the shared pool (default by tier)
+  modifier?: GlobalModifier;
+  /** Freedealing Gambler: sells for more than the usual refund. */
+  sellValue?: number;
+  isToken?: boolean;
 }
 
 export interface MinionInstance {
@@ -182,15 +244,17 @@ export interface MinionInstance {
   cardId: string;
   attack: number;
   health: number;
+  /** Stats before auras — auras are recomputed on top of these. */
   baseAttack: number;
   baseHealth: number;
   keywords: Set<Keyword>;
+  /** Keywords granted permanently (survive aura recomputation). */
+  grantedKeywords: Set<Keyword>;
   isGolden: boolean;
-  divineShieldConsumedThisFight?: boolean;
+  /** Trigger indices that already fired their once-per-combat use. */
+  spentTriggers?: Set<number>;
   justReborn?: boolean;
-  frenzyTriggered?: boolean; // Big Mom/Vinsmoke "survives damage" effect (once per combat)
-  /** Buffs banked by a hero power for the next combat only; applied when the
-   * combat clone is built, then cleared afterwards regardless of outcome. */
+  /** Buffs banked by a hero power for the next combat only. */
   pendingAttack?: number;
   pendingHealth?: number;
   pendingKeywords?: Keyword[];
@@ -209,8 +273,7 @@ export interface HeroDef {
   title: string;
   power: HeroPower;
   startingHealth: number;
-  portrait: string; // emoji stand-in
-  onBuy?: Effect[]; // passive applied contextually (engine checks hero id directly for special powers)
+  portrait: string;
 }
 
 export type Phase = 'SETUP' | 'HERO_SELECT' | 'RECRUIT' | 'COMBAT' | 'GAME_OVER';
@@ -226,26 +289,26 @@ export interface PlayerState {
   armor: number;
   hero: HeroDef;
   heroPowerUsedThisTurn: number;
-  heroPowerBanked: boolean; // some powers passive/always-on
+  heroPowerBanked: boolean;
   tavernTier: number;
   turnReachedCurrentTier: number;
+  /** Deck Swabbie: discount applied to the next tavern upgrade. */
+  upgradeDiscount: number;
+  /** Refreshing Anomaly: number of free refreshes banked. */
+  freeRefreshes: number;
   gold: number;
   maxGold: number;
-  goldBankNextTurn: number; // for hero powers that store gold
+  goldBankNextTurn: number;
   board: MinionInstance[]; // max 7
-  hand: MinionInstance[]; // max 10 (in shop phase, purchased minions sit here before placed)
-  shop: (CardDef | null)[]; // current tavern offering
+  hand: MinionInstance[]; // max 10
+  shop: (CardDef | null)[];
   frozen: boolean;
-  lastCombatBoard: MinionInstance[] | null; // snapshot used for "ghost" byes
+  lastCombatBoard: MinionInstance[] | null;
   triplesThisGame: number;
   turnsSurvived: number;
   placement: number | null;
   botTribeBias: Tribe | null;
-  /** Online play: set when this player has locked in their recruit phase.
-   * Combat resolves once every living human is ready, or the turn timer ends. */
   ready: boolean;
-  /** Online play: false once the socket drops. Disconnected players keep their
-   * board and are auto-readied so they never stall the lobby. */
   connected: boolean;
 }
 
@@ -257,6 +320,8 @@ export interface CombatSummary {
   isBye: boolean;
   playerBoardBefore: MinionInstance[];
   opponentBoardBefore: MinionInstance[];
+  /** Replayable battle for the animated viewer. */
+  steps: import('./combat').CombatStep[];
   logs: string[];
   result: 'WIN' | 'LOSS' | 'DRAW';
   damageDealt: number;
@@ -273,4 +338,3 @@ export interface GameState {
   log: string[];
   standings: PlayerState[];
 }
-

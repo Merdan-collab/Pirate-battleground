@@ -56,6 +56,8 @@ export interface WireCombatSummary {
   isBye: boolean;
   playerBoardBefore: WireMinion[];
   opponentBoardBefore: WireMinion[];
+  /** Replayable battle frames for the animated viewer. */
+  steps: import('../engine/combat').CombatStep[];
   logs: string[];
   result: 'WIN' | 'LOSS' | 'DRAW';
   damageDealt: number;
